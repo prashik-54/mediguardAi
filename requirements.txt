@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+pandas
+numpy
+scikit-learn
+torch
+pydantic
+pymongo
+dnspython
+certifi
+pyjwt
+pytest
+httpx

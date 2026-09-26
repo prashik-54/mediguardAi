@@ -1,0 +1,80 @@
+/* Design tokens — MediGuard AI (v2 "Marine")
+   Colour grade: deep marine-ink chrome, petrol-teal primary, signal-mint accent,
+   a cool porcelain canvas and a clinical red / amber / green severity scale.
+   Warm sun + sky accents are reserved for charts and illustration so the UI
+   itself stays calm. */
+:root {
+  /* Marine ink (sidebar, hero, footer) */
+  --navy-975: #03141c;
+  --navy-950: #061c27;
+  --navy-900: #0a2a39;
+  --navy-800: #0f3a4d;
+  --navy-700: #175068;
+  --navy-line: rgba(255, 255, 255, 0.08);
+
+  /* Brand */
+  --primary: #0a6a78;
+  --primary-hover: #085a66;
+  --primary-strong: #064a55;
+  --primary-soft: #e1f2f3;
+  --primary-ring: rgba(10, 106, 120, 0.2);
+  --accent: #2bd9b5;
+  --accent-hover: #1fc3a1;
+  --accent-strong: #12a98a;
+  --accent-soft: #dcf8f0;
+  --accent-ink: #032f29;
+
+  /* Illustration + chart accents */
+  --sky: #5aa9ff;
+  --sun: #f4b23f;
+  --coral: #ff6b7a;
+  --violet: #8b7cf6;
+
+  /* Surfaces */
+  --bg: #f0f6f7;
+  --surface: #ffffff;
+  --surface-2: #f6fafb;
+  --surface-3: #eaf2f4;
+  --border: #dde8eb;
+  --border-strong: #c7d6db;
+
+  /* Text */
+  --text: #0a1f29;
+  --text-2: #36505c;
+  --muted: #5f7784;
+  --muted-2: #8aa0ab;
+
+  /* Semantic */
+  --high: #d4304a;      --high-bg: #fdecef;      --high-line: #f6c6cf;
+  --mod: #b46a08;       --mod-bg: #fff3df;       --mod-line: #f4d9a6;
+  --low: #0c9468;       --low-bg: #e2f8ef;       --low-line: #b6e7d0;
+  --info: #3563e9;      --info-bg: #eaf0ff;      --info-line: #c6d5fb;
+
+  /* Shape — radius steps up with hierarchy */
+  --r-xs: 6px;
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 18px;
+  --r-xl: 28px;
+
+  /* Depth — tinted with the ink hue rather than neutral grey */
+  --shadow-xs: 0 1px 2px rgba(6, 28, 39, 0.05);
+  --shadow-sm: 0 1px 2px rgba(6, 28, 39, 0.05), 0 2px 6px -2px rgba(6, 28, 39, 0.06);
+  --shadow-md: 0 1px 2px rgba(6, 28, 39, 0.04), 0 10px 28px -14px rgba(6, 40, 52, 0.18);
+  --shadow-lg: 0 30px 70px -28px rgba(3, 20, 28, 0.55);
+  --shadow-glow: 0 10px 30px -10px rgba(43, 217, 181, 0.55);
+
+  /* Motion */
+  --ease: cubic-bezier(0.22, 0.8, 0.24, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur: 0.18s;
+
+  /* Type */
+  --font-body: 'Figtree Variable', 'Figtree', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Bricolage Grotesque Variable', 'Bricolage Grotesque', 'Figtree Variable', system-ui, sans-serif;
+
+  /* Layout */
+  --sidebar-w: 248px;
+  --sidebar-w-collapsed: 78px;
+  --topbar-h: 66px;
+}

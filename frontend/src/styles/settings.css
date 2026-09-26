@@ -1,0 +1,19 @@
+.settings-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; max-width: 760px; }
+@media (max-width: 700px) { .form-grid { grid-template-columns: 1fr; } }
+.form-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 22px; max-width: 760px; }
+.notif-matrix { width: 100%; max-width: 760px; }
+.notif-matrix th { text-align: center; font-size: 12px; color: var(--muted); padding: 8px; }
+.notif-matrix th:first-child, .notif-matrix td:first-child { text-align: left; }
+.notif-matrix td { padding: 12px 8px; border-top: 1px solid var(--border); text-align: center; }
+.notif-matrix td:first-child b { display: block; font-size: 13.5px; } .notif-matrix td:first-child span { font-size: 12.5px; color: var(--muted); }
+.notif-matrix .toggle { display: block; margin: 0 auto; }
+.danger-zone { border: 1px solid var(--high-line); border-radius: 12px; padding: 16px 18px; display: flex; justify-content: space-between; gap: 16px; align-items: center; flex-wrap: wrap; max-width: 760px; }
+.faq { border-bottom: 1px solid var(--border); }
+.faq summary { list-style: none; cursor: pointer; padding: 16px 20px; font-weight: 600; font-size: 14px; display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary svg { transition: transform .18s; flex-shrink: 0; color: var(--muted); }
+.faq[open] summary svg { transform: rotate(180deg); }
+.faq p { padding: 0 20px 18px; color: var(--text-2); font-size: 13.5px; line-height: 1.75; max-width: 720px; }
+.support-grid { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 960px) { .support-grid { grid-template-columns: 1fr; } }
