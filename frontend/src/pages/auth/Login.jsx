@@ -3,26 +3,9 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { CircleAlert } from 'lucide-react';
 import AuthLayout from '../../components/layout/AuthLayout';
 import { TextField, PasswordField } from '../../components/ui/Field';
-import { GoogleIcon, MicrosoftIcon, AppleIcon } from '../../components/ui/Icons';
 import { useAuth } from '../../context/AuthContext';
-import { useToast } from '../../context/ToastContext';
 import { useSystemStatus } from '../../context/SystemStatusContext';
 import { isEmail } from '../../lib/format';
-
-export function OAuthRow() {
-  const toast = useToast();
-  const off = (n) => () => toast.info(`${n} sign-in isn’t configured yet.`);
-  return (
-    <>
-      <div className="or-line">Or continue with</div>
-      <div className="oauth-row">
-        <button type="button" className="oauth" onClick={off('Google')}><GoogleIcon />Google</button>
-        <button type="button" className="oauth" onClick={off('Microsoft')}><MicrosoftIcon />Microsoft</button>
-        <button type="button" className="oauth" onClick={off('Apple')}><AppleIcon />Apple</button>
-      </div>
-    </>
-  );
-}
 
 function AdminAccountNotice() {
   const { info } = useSystemStatus();
@@ -82,7 +65,6 @@ export default function Login() {
         </div>
         <button className="btn btn-primary btn-block btn-lg" type="submit" disabled={busy}>{busy ? <><span className="spinner sm" style={{ borderTopColor: '#fff', borderColor: 'rgba(255,255,255,.35)' }} />Signing in…</> : 'Sign In'}</button>
       </form>
-      <OAuthRow />
       <AdminAccountNotice />
     </AuthLayout>
   );

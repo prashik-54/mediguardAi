@@ -77,11 +77,6 @@
 .seg a, .seg button { height: 38px; display: flex; align-items: center; justify-content: center; border: 0; background: none; border-radius: 10px; font-size: 14px; font-weight: 600; color: var(--muted); transition: color .2s, background-color .25s var(--ease), box-shadow .25s var(--ease); }
 .seg a:hover:not(.on), .seg button:hover:not(.on) { color: var(--text); }
 .seg .on { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(6,28,39,.1), 0 4px 10px -4px rgba(6,28,39,.18); }
-.oauth-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-.oauth { height: 44px; display: flex; align-items: center; justify-content: center; gap: 8px; border: 1px solid var(--border-strong); border-radius: 11px; background: var(--surface); font-size: 13.5px; font-weight: 600; box-shadow: var(--shadow-xs); transition: all .2s var(--ease); }
-.oauth:hover { border-color: var(--primary); transform: translateY(-1px); box-shadow: 0 8px 16px -10px rgba(6,60,72,.4); }
-.or-line { display: flex; align-items: center; gap: 14px; color: var(--muted); font-size: 13px; margin: 20px 0; }
-.or-line::before, .or-line::after { content: ''; flex: 1; height: 1px; background: var(--border); }
 .otp { display: flex; gap: 8px; justify-content: space-between; }
 .otp input { width: 100%; max-width: 58px; height: 60px; text-align: center; font-size: 24px; font-weight: 700; border: 1px solid var(--border-strong); border-radius: 13px; font-family: var(--font-display); box-shadow: var(--shadow-xs); transition: border-color .15s, box-shadow .15s, transform .15s var(--ease); }
 .otp input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 4px var(--primary-ring); transform: translateY(-2px); }
