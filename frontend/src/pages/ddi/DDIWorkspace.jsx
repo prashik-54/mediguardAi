@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { FlaskConical, Plus, X, Pill, TriangleAlert, CircleCheck, RefreshCw, ClipboardCheck, Wifi, WifiOff, Save } from 'lucide-react';
+import { FlaskConical, Pill, TriangleAlert, CircleCheck, RefreshCw, ClipboardCheck, Wifi, WifiOff, Info } from 'lucide-react';
 import { Avatar, EmptyState } from '../../components/ui/Misc';
 import { SeverityBadge } from '../../components/ui/Badges';
 import { Drawer } from '../../components/ui/Modal';
@@ -12,7 +12,6 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { api } from '../../lib/api';
 import { riskFactors, riskScore } from '../../lib/risk';
-import { CATALOG, findDrug } from '../../data/catalog';
 import { fmtDate } from '../../lib/format';
 import '../../styles/ddi.css';
 
@@ -87,7 +86,7 @@ export default function DDIWorkspace() {
 
 function Workspace({ patient }) {
   const [, setParams] = useSearchParams();
-  const { patients, setMeds, refreshPatient } = usePatients();
+  const { patients, refreshPatient } = usePatients();
   const { user } = useAuth();
   const toast = useToast();
   const patientId = patient.id;
@@ -95,8 +94,8 @@ function Workspace({ patient }) {
   // finalized prescription (see _sync_patient_medications on the backend --
   // it replaces, never merges, on each finalize), so pre-loading it here
   // *is* "current medication only", not existing+current combined.
-  const [meds, setLocalMeds] = useState(patient.meds);
-  const [q, setQ] = useState('');
+  // Read-only: medications are only changed by a prescription during a consultation.
+  const meds = patient.meds;
   const [state, setState] = useState('idle'); // idle | loading | done
   const [result, setResult] = useState(null);
   const [analysedSig, setAnalysedSig] = useState('');
@@ -124,7 +123,7 @@ function Workspace({ patient }) {
   // `patient` object for the same id once it resolves, e.g. right after a
   // checkup synced in a newly finalized prescription -- this component
   // doesn't remount in that case, so it has to notice via the signature).
-  useEffect(() => { setLocalMeds(patient.meds); if (patient.meds.length > 1) run(patient.meds, patient); else { setState('idle'); setResult(null); setAnalysedSig(''); } }, [patient.id, sig(patient.meds)]); // eslint-disable-line
+  useEffect(() => { if (patient.meds.length > 1) run(patient.meds, patient); else { setState('idle'); setResult(null); setAnalysedSig(''); } }, [patient.id, sig(patient.meds)]); // eslint-disable-line
 
   const working = { ...patient, meds };
   const stale = state === 'done' && sig(meds) !== analysedSig;
@@ -135,20 +134,12 @@ function Workspace({ patient }) {
   const score = useMemo(() => riskScore(working, pairs, meds.length), [pairs, patient, meds.length]); // eslint-disable-line
   const hitNames = new Set(pairs.flatMap((x) => [x.a, x.b]));
   const topHigh = pairs.find((x) => x.severity === 'High');
-  const dirty = sig(meds) !== sig(patient.meds);
-
-  const add = () => {
-    const d = findDrug(q);
-    if (!d) return toast.error('Choose a medication from the suggestions.');
-    if (meds.some((m) => m.name === d.name)) return toast.error(`${d.name} is already in the list.`);
-    setLocalMeds([...meds, { name: d.name, dose: d.dose, freq: 'Once daily', indication: 'Not specified' }]); setQ('');
-  };
 
   return (
     <>
       <PageHead
         breadcrumbs={<><Link to="/app/patients">Patients</Link><span>/</span><Link to={`/app/patients/${patient.id}`}>{patient.name}</Link><span>/</span><span className="cur">DDI Analysis</span></>}
-        title="DDI Analysis Workspace" subtitle="Add medications and analyze potential drug–drug interactions.">
+        title="DDI Analysis Workspace" subtitle="Analyze potential drug–drug interactions in the patient’s current medications.">
         {state === 'done' && <span className={`badge ${result.engine === 'live' ? 'badge-low' : 'badge-neutral'}`} title={result.engine === 'live' ? 'Results include the FastAPI Module 2 lookup' : 'FastAPI backend not reachable — using the built-in reference interaction data'}>{result.engine === 'live' ? <><Wifi size={12} />Live engine</> : <><WifiOff size={12} />Reference data</>}</span>}
         {state === 'done' && <div className="small muted" style={{ textAlign: 'right' }}><span className="badge badge-low no-dot" style={{ marginRight: 8 }}><CircleCheck size={12} />Analysis Complete</span><div className="mt-4">Analysis ID: {result.id} · {fmtDate(result.at)}</div></div>}
       </PageHead>
@@ -169,27 +160,20 @@ function Workspace({ patient }) {
 
       <div className="ddi-grid">
         <section className="card card-pad">
-          <div className="search-add">
-            <input className="input" list="ddi-cat" placeholder="Search medication (e.g. Metformin or Glycomet)" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') add(); }} aria-label="Search medications" />
-            <datalist id="ddi-cat">{CATALOG.filter((d) => !meds.some((m) => m.name === d.name)).map((d) => <option key={d.name} value={d.name}>{d.cls} · {d.brands.join(', ')}</option>)}</datalist>
-            <button className="btn btn-navy" onClick={add}><Plus size={15} />Add</button>
-          </div>
+          <div className="callout callout-info" style={{ display: 'flex', gap: 8 }}><Info size={16} style={{ flexShrink: 0, marginTop: 2 }} /><span>Medications can only be changed by a prescription during a consultation. This checker analyses the patient’s current list.</span></div>
           <div className="row between mt-16 mb-8">
             <h2 className="card-title">Added Medications ({meds.length})</h2>
             <div className="row gap-12">
               <button className="link-btn" title="Reload this patient's medications from their record -- use this if a prescription was just finalized in another tab" onClick={async () => { try { await refreshPatient(patient.id); toast.success('Medication list refreshed from the patient record.'); } catch (ex) { toast.error(ex.message || 'Could not refresh the medication list.'); } }}>Refresh</button>
-              {dirty && <button className="link-btn" onClick={() => setLocalMeds(patient.meds)}>Reset</button>}
             </div>
           </div>
-          {meds.length === 0 ? <p className="muted small">Add at least two medications to check for interactions.</p> : meds.map((m) => (
+          {meds.length === 0 ? <p className="muted small">This patient needs at least two current medications to check for interactions. Medications are added through a prescription in a consultation.</p> : meds.map((m) => (
             <div className="med-item" key={m.name}>
               <span className={`ico ${state === 'done' && hitNames.has(m.name) ? 'hit' : ''}`}><Pill size={17} /></span>
               <div className="grow"><b>{m.name}</b><span>{m.dose} · {m.freq}</span></div>
-              <button className="icon-btn plain" aria-label={`Remove ${m.name}`} onClick={() => setLocalMeds(meds.filter((x) => x.name !== m.name))}><X size={16} /></button>
             </div>
           ))}
           <button className="btn btn-primary btn-block mt-16" disabled={meds.length < 2 || state === 'loading'} onClick={() => run(meds, working)}>{state === 'loading' ? <><span className="spinner sm" style={{ borderTopColor: '#fff', borderColor: 'rgba(255,255,255,.35)' }} />Analyzing…</> : <><RefreshCw size={15} />{state === 'done' ? 'Re-run analysis' : 'Run analysis'}</>}</button>
-          {dirty && user.role === 'doctor' && <button className="btn btn-outline btn-block mt-8" onClick={async () => { try { await setMeds(patient.id, meds.map((m) => ({ ...m, since: m.since || fmtDate(new Date()) }))); toast.success('Medication list saved to the patient record.'); } catch (ex) { toast.error(ex.message || 'The medication list could not be saved.'); } }}><Save size={15} />Save to patient record</button>}
         </section>
 
         <div className="ddi-right">
@@ -207,7 +191,7 @@ function Workspace({ patient }) {
               </div>}
             </div>
             {state === 'loading' && <div className="analysis-state"><div className="spinner" style={{ margin: '0 auto 14px' }} /><b>Analyzing drug interactions…</b><p className="muted small mt-4">This may take a few seconds.</p><div className="indeterminate" style={{ maxWidth: 260, margin: '18px auto 0' }} /></div>}
-            {state === 'idle' && <EmptyState icon={Pill} title="Ready when you are">Add two or more medications, then run the analysis to see interactions.</EmptyState>}
+            {state === 'idle' && <EmptyState icon={Pill} title="Ready when you are">Run the analysis to see interactions between the patient’s current medications.</EmptyState>}
             {state === 'done' && pairs.length === 0 && <div className="analysis-state"><div className="status-icon ok" style={{ margin: '0 auto 14px' }}><CircleCheck size={28} /></div><b>No known interactions detected</b><p className="muted small mt-4">Based on the current medication list and patient profile.<br />Analysis completed {result.at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.</p></div>}
             {state === 'done' && pairs.length > 0 && (shown.length === 0 ? <p className="muted small" style={{ padding: '10px 20px 24px' }}>No interactions at this severity.</p> : (
               <div className="table-wrap"><table className="table"><thead><tr><th>Medication A</th><th>Medication B</th><th>Severity</th><th>Type</th><th /></tr></thead>

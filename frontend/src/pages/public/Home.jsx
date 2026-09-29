@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { TriangleAlert, ArrowRight, Mail, MapPin, Phone, CircleCheck, Check, Languages, Brain, ClipboardCheck, GraduationCap, Layers, ShieldCheck } from 'lucide-react';
+import { TriangleAlert, ArrowRight, Mail, MapPin, Phone, CircleCheck, Check, Languages, Brain, ClipboardCheck } from 'lucide-react';
 import { IconTile } from '../../components/ui/Misc';
 import { TextField, SelectField, TextAreaField } from '../../components/ui/Field';
 import { useToast } from '../../context/ToastContext';
@@ -12,10 +12,6 @@ import Portrait from '../../components/art/Portraits';
 import { Capsule, Tablet } from '../../components/art/Capsule';
 import { SpotRisk, SpotExplain, SpotPatients, SpotSecure, StepRegister, StepMeds, StepAnalyze, StepReport, CtaArt } from '../../components/art/Spots';
 import '../../styles/home.css';
-
-// PLACEHOLDER marketing figures carried over from the reference design.
-// Replace with verified numbers before any public release.
-const STATS = [['10K+', 'Patients managed'], ['98%', 'Accuracy rate'], ['24/7', 'System availability']];
 
 const FEATURES = [
   { art: SpotRisk, title: 'Personalised risk prediction', text: 'Risk is adjusted for age, kidney and liver function, allergies and the full medication list — not just the drug pair.' },
@@ -31,14 +27,7 @@ const STEPS = [
   { art: StepReport, title: 'Review and act', text: 'Read the explanation, request a pharmacist review, then export a report.' },
 ];
 
-const ROLES = [
-  { role: 'doctor', tone: '#d6f5ee', title: 'Doctors', text: 'Run analyses and act on the results.', points: ['Register patients and medication lists', 'See each alert with its reasoning', 'Request a pharmacist review'] },
-  { role: 'pharmacist', tone: '#dbe7ff', title: 'Pharmacists', text: 'Review what has been flagged.', points: ['A queue ordered by priority', 'Approve, adjust or escalate with notes', 'Full patient context on one screen'] },
-  { role: 'patient', tone: '#ffedcf', title: 'Patients', text: 'Understand your own medicines.', points: ['Plain-language interaction alerts', 'Medication reminders', 'Download your reports'] },
-  { role: 'admin', tone: '#e6e0ff', title: 'Administrators', text: 'Keep operations safe and auditable — at your hospital or across the platform.', points: ['Hospital admins manage their own staff & patients', 'Platform admins oversee every hospital', 'An audit trail of every action'] },
-];
-
-/** Counts a leading number up when scrolled into view ("10K+" → 0…10 then "K+"). */
+/** Counts a leading number up when scrolled into view. */
 function useInView(threshold = 0.35) {
   const ref = useRef(null);
   const [seen, setSeen] = useState(false);
@@ -124,7 +113,7 @@ function ExplainShowcase() {
             </div>
           ))}
         </div>
-        <p className="tiny muted mt-8">Illustrative scoring example. The trained prediction engine (Module 4, part 2) will replace these rules.</p>
+        <p className="tiny muted mt-8">Illustrative scoring example for demonstration purposes only.</p>
       </div>
     </div>
   );
@@ -163,7 +152,7 @@ function ContactForm() {
         <TextField label="Full name" value={f.name} onChange={set('name')} error={err.name} autoComplete="name" />
         <TextField label="Email" type="email" value={f.email} onChange={set('email')} error={err.email} autoComplete="email" />
       </div>
-      <SelectField label="Topic" value={f.topic} onChange={set('topic')} error={err.topic} placeholder="Select a topic" options={['Request a demo', 'Research collaboration', 'Report an issue', 'Something else']} />
+      <SelectField label="Topic" value={f.topic} onChange={set('topic')} error={err.topic} placeholder="Select a topic" options={['Request a demo', 'Partnership enquiry', 'Report an issue', 'Something else']} />
       <TextAreaField label="Message" value={f.message} onChange={set('message')} error={err.message} rows={5} />
       <div className="row between wrap gap-12"><span className="tiny muted">Please don’t include patient-identifiable information.</span><button className="btn btn-primary" type="submit">Send message</button></div>
     </form>
@@ -172,7 +161,6 @@ function ContactForm() {
 
 export default function Home() {
   const nav = useNavigate();
-  const [statsRef, statsSeen] = useInView(0.5);
   useEffect(() => { document.title = 'MediGuard AI — Smarter medication decisions through explainable AI'; }, []);
   return (
     <>
@@ -202,9 +190,8 @@ export default function Home() {
               <article className="feature-card" key={f.title}><div className="art"><f.art /></div><div className="body"><h3>{f.title}</h3><p>{f.text}</p></div></article>
             ))}
           </div>
-          <div className="trust-bar" ref={statsRef}>
+          <div className="trust-bar">
             <div><h3>Better insights. Safer decisions. Healthier lives.</h3><p className="small muted mt-4">This platform is a clinical decision-support tool and does not replace professional medical judgment.</p></div>
-            <div className="trust-stats">{STATS.map(([n, l]) => <div key={l}><strong><CountUp text={n} run={statsSeen} /></strong><span>{l}</span></div>)}</div>
           </div>
         </div>
       </section>
@@ -226,24 +213,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section id="roles" className="section section-alt">
-        <div className="container">
-          <div className="section-head center"><h2>One platform, a view for every role</h2><p>The same patient record, shown the way each person needs to use it.</p></div>
-          <div className="roles">
-            {ROLES.map((r) => (
-              <article className="role-card" key={r.role} style={{ '--tone': r.tone }}>
-                <div className="who"><Portrait role={r.role} size={68} ring /></div>
-                <h3>{r.title}</h3>
-                <p className="d">{r.text}</p>
-                <ul>{r.points.map((t) => <li key={t}><CircleCheck size={16} />{t}</li>)}</ul>
-                <Link to="/login" className="btn btn-outline btn-sm">Sign in as {r.title.replace(/s$/, '').toLowerCase()}</Link>
-              </article>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section id="how" className="section">
+      <section id="how" className="section section-alt">
         <div className="container">
           <div className="section-head"><h2>How it works</h2><p>From registration to a reviewed report in four steps.</p></div>
           <ol className="steps" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
@@ -258,35 +228,30 @@ export default function Home() {
         </div>
       </section>
 
-      <section id="about" className="section section-alt">
+      <section id="about" className="section">
         <div className="container">
           <div style={{ maxWidth: 720 }}>
             <div className="section-head" style={{ marginBottom: 22 }}><h2>Built around Indian prescribing practice</h2></div>
             <p>Most interaction checkers are trained on Western datasets and look at drug pairs in isolation. MediGuard AI starts from the Indian drug ecosystem — CDSCO brand names mapped to generic salts — and combines it with public interaction databases and each patient’s clinical profile.</p>
-            <div className="about-tags">
-              <span><Layers size={15} />Six-module framework</span>
-              <span><GraduationCap size={15} />Academic research project</span>
-              <span><ShieldCheck size={15} />Role-based access</span>
-            </div>
           </div>
         </div>
       </section>
 
-      <section id="contact" className="section">
+      <section id="contact" className="section section-alt">
         <div className="container contact-grid">
           <div>
-            <div className="section-head" style={{ marginBottom: 14 }}><h2>Talk to the team</h2><p>Questions, demo requests or research collaboration — we’re happy to help.</p></div>
+            <div className="section-head" style={{ marginBottom: 14 }}><h2>Talk to the team</h2><p>Questions, demo requests or partnership enquiries — we’re happy to help.</p></div>
             <ul className="contact-list">
-              <li><IconTile icon={Mail} size={44} /><div><b>Email</b><span>contact@mediguard.ai</span></div></li>
-              <li><IconTile icon={Phone} size={44} /><div><b>Phone</b><span>+91 712 000 0000 · Mon–Fri, 10:00–18:00 IST</span></div></li>
-              <li><IconTile icon={MapPin} size={44} /><div><b>Campus</b><span>GH Raisoni College of Engineering, Nagpur</span></div></li>
+              <li><IconTile icon={Mail} size={44} /><div><b>Email</b><span>support@mediguard.ai</span></div></li>
+              <li><IconTile icon={Phone} size={44} /><div><b>Phone</b><span>+91 98765 43210 · Mon–Sat, 10:00–18:00 IST</span></div></li>
+              <li><IconTile icon={MapPin} size={44} /><div><b>Office</b><span>MediGuard AI, 4th Floor, Orange City Tower, Civil Lines, Nagpur, Maharashtra 440001</span></div></li>
             </ul>
           </div>
           <ContactForm />
         </div>
       </section>
 
-      <section className="section section-alt" style={{ paddingTop: 64, paddingBottom: 80 }}>
+      <section className="section" style={{ paddingTop: 64, paddingBottom: 80 }}>
         <div className="container grid" style={{ gap: 28 }}>
           <div className="disclaimer" role="note">
             <TriangleAlert size={22} style={{ flexShrink: 0, marginTop: 2 }} />

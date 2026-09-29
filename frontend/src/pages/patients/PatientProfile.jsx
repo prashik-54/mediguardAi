@@ -1,17 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Pencil, FlaskConical, Plus, Trash2, UserX, FileText } from 'lucide-react';
+import { Pencil, FlaskConical, UserX, FileText } from 'lucide-react';
 import { Avatar, EmptyState } from '../../components/ui/Misc';
 import { Tabs } from '../../components/ui/Tabs';
 import { RiskBadge, SeverityBadge, StatusBadge } from '../../components/ui/Badges';
-import { SelectField } from '../../components/ui/Field';
 import PatientForm, { toForm } from './PatientForm';
 import { usePatients } from '../../context/PatientsContext';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { api } from '../../lib/api';
-import { CATALOG, FREQUENCIES, findDrug } from '../../data/catalog';
-import { analyzeMedications, kidneyStatus, liverStatus, patientRisk } from '../../lib/risk';
+import { kidneyStatus, liverStatus, patientRisk } from '../../lib/risk';
 import { bmi, bmiLabel, daysAgo, fmtDate } from '../../lib/format';
 import '../../styles/patients.css';
 
@@ -23,13 +21,11 @@ export default function PatientProfile() {
   const toast = useToast();
   const { user } = useAuth();
   const [params, setParams] = useSearchParams();
-  const { getPatient, updatePatient, setMeds, refreshPatient } = usePatients();
+  const { getPatient, updatePatient, refreshPatient } = usePatients();
   const p = getPatient(id);
   const [tab, setTab] = useState(params.get('tab') || 'overview');
   const [editing, setEditing] = useState(false);
-  const [pick, setPick] = useState({ name: '', dose: '', freq: 'Once daily' });
   const canEdit = user.role === 'doctor' || user.role === 'administrator';
-  const canEditMeds = user.role === 'doctor';
   const isDoctor = user.role === 'doctor';
   useEffect(() => { document.title = `${p?.name || 'Patient'} — MediGuard AI`; }, [p]);
   // The cached patient list can be stale (e.g. a completed checkup synced new
@@ -52,16 +48,6 @@ export default function PatientProfile() {
   if (!p) return <EmptyState icon={UserX} title="Patient not found" action={<Link className="btn btn-primary" to="/app/patients">Back to patients</Link>}>This record may have been deleted or the link is incorrect.</EmptyState>;
 
   const kidney = kidneyStatus(p.egfr); const liver = liverStatus(p.alt); const b = bmi(p.height, p.weight);
-  const addMed = async () => {
-    const d = findDrug(pick.name);
-    if (!d) return toast.error('Choose a medication from the list.');
-    if (p.meds.some((m) => m.name === d.name)) return toast.error(`${d.name} is already on the list.`);
-    const meds = [...p.meds, { name: d.name, dose: pick.dose || d.dose, freq: pick.freq, indication: 'Not specified', since: fmtDate(new Date()) }];
-    try { await setMeds(p.id, meds); } catch (ex) { return toast.error(ex.message || 'The medication list could not be saved.'); }
-    const found = analyzeMedications(meds.map((m) => m.name)).filter((i) => i.a === d.name || i.b === d.name);
-    found.length ? toast.error(`${d.name} added — ${found.length} possible interaction${found.length > 1 ? 's' : ''} found.`) : toast.success(`${d.name} added.`);
-    setPick({ name: '', dose: '', freq: 'Once daily' });
-  };
   const changeTab = (t) => { setTab(t); setParams(t === 'overview' ? {} : { tab: t }, { replace: true }); };
 
   return (
@@ -131,19 +117,10 @@ export default function PatientProfile() {
 
       {tab === 'medications' && (
         <section className="card card-flush mt-16">
-          {!canEditMeds && <p className="muted small" style={{ padding: '12px 16px 0' }}>Medications are prescribed and managed by the treating doctor.</p>}
-          {canEditMeds && (
-            <div className="filters" style={{ alignItems: 'end' }}>
-              <div className="field" style={{ flex: '1 1 200px' }}><label htmlFor="pm-name">Add medication</label><input id="pm-name" className="input" list="pm-list" placeholder="Search generic or brand name" value={pick.name} onChange={(e) => setPick({ ...pick, name: e.target.value })} /><datalist id="pm-list">{CATALOG.map((d) => <option key={d.name} value={d.name}>{d.brands.join(', ')}</option>)}</datalist></div>
-              <div className="field" style={{ width: 110 }}><label htmlFor="pm-dose">Dose</label><input id="pm-dose" className="input" placeholder={findDrug(pick.name)?.dose || '500mg'} value={pick.dose} onChange={(e) => setPick({ ...pick, dose: e.target.value })} /></div>
-              <SelectField label="Frequency" value={pick.freq} options={FREQUENCIES} onChange={(e) => setPick({ ...pick, freq: e.target.value })} />
-              <button className="btn btn-navy" onClick={addMed}><Plus size={15} />Add</button>
-            </div>
-          )}
-          {p.meds.length === 0 ? <EmptyState title="No medications recorded">Add a medication to run an interaction check.</EmptyState> : (
-            <div className="table-wrap"><table className="table"><thead><tr><th>Medication</th><th>Dose</th><th>Frequency</th><th>Indication</th><th>Since</th>{canEditMeds && <th />}</tr></thead>
-              <tbody>{p.meds.map((m) => <tr key={m.name}><td><b>{m.name}</b></td><td>{m.dose}</td><td>{m.freq}</td><td className="muted">{m.indication}</td><td className="muted">{m.since}</td>
-                {canEditMeds && <td className="right"><button className="icon-btn plain" aria-label={`Remove ${m.name}`} onClick={async () => { try { await setMeds(p.id, p.meds.filter((x) => x.name !== m.name)); toast.success(`${m.name} removed.`); } catch (ex) { toast.error(ex.message || 'The medication could not be removed.'); } }}><Trash2 size={15} /></button></td>}</tr>)}</tbody></table></div>
+          <p className="muted small" style={{ padding: '12px 16px 0' }}>Medications are prescribed by the treating doctor during a consultation. They appear here once the prescription is finalized.</p>
+          {p.meds.length === 0 ? <EmptyState title="No medications recorded">Medications are added when a doctor finalizes a prescription.</EmptyState> : (
+            <div className="table-wrap"><table className="table"><thead><tr><th>Medication</th><th>Dose</th><th>Frequency</th><th>Indication</th><th>Since</th></tr></thead>
+              <tbody>{p.meds.map((m) => <tr key={m.name}><td><b>{m.name}</b></td><td>{m.dose}</td><td>{m.freq}</td><td className="muted">{m.indication}</td><td className="muted">{m.since}</td></tr>)}</tbody></table></div>
           )}
         </section>
       )}
@@ -172,7 +149,7 @@ export default function PatientProfile() {
         </section>
       )}
 
-      {editing && <PatientForm mode="edit" initial={toForm(p)} onClose={() => setEditing(false)} lockMeds={!canEditMeds} onSubmit={async (data) => { try { await updatePatient(p.id, { ...data, allergies: data.allergies.filter((a) => a.substance.trim()) }); setEditing(false); toast.success('Profile updated.'); } catch (ex) { toast.error(ex.message || 'The profile could not be saved.'); } }} />}
+      {editing && <PatientForm mode="edit" initial={toForm(p)} onClose={() => setEditing(false)} lockMeds onSubmit={async (data) => { try { await updatePatient(p.id, { ...data, allergies: data.allergies.filter((a) => a.substance.trim()) }); setEditing(false); toast.success('Profile updated.'); } catch (ex) { toast.error(ex.message || 'The profile could not be saved.'); } }} />}
     </>
   );
 }

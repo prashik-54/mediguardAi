@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, FlaskConical, UserPlus, FileText, Stethoscope, Clock, CircleCheck } from 'lucide-react';
+import { Users, FlaskConical, FileText, Stethoscope, Clock, CircleCheck } from 'lucide-react';
 import { StatCard, Avatar, IconTile, EmptyState, LoadingState, ErrorState, rowProps } from '../../components/ui/Misc';
 import Banner from '../../components/ui/Banner';
 import { StatusBadge } from '../../components/ui/Badges';
@@ -96,7 +96,7 @@ export default function DoctorDashboard() {
           <section className="card card-pad">
             <h2 className="card-title mb-12">Quick Actions</h2>
             <div className="quick">
-              <button className="quick-tile" onClick={() => nav('/app/patients?new=1')}><IconTile icon={UserPlus} /><div><b>Add patient</b><span>Register a new clinical profile</span></div></button>
+              <button className="quick-tile" onClick={() => nav('/app/queue')}><IconTile icon={Stethoscope} /><div><b>My queue</b><span>Patients assigned to you today</span></div></button>
               <button className="quick-tile" onClick={() => nav('/app/ddi')}><IconTile icon={FlaskConical} tone="low" /><div><b>DDI checker</b><span>Check a medication list</span></div></button>
               <button className="quick-tile" onClick={() => nav('/app/reports')}><IconTile icon={FileText} tone="info" /><div><b>Patient reports</b><span>Finalized prescription reports</span></div></button>
             </div>

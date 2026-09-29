@@ -67,7 +67,6 @@ export function SiteFooter() {
         </div>
         <div className="footer-base">
           <span>© {new Date().getFullYear()} MediGuard AI. Clinical decision support — not a substitute for professional medical judgment.</span>
-          <span>CSE_C_09 · GH Raisoni College of Engineering, Nagpur</span>
         </div>
       </div>
     </footer>

@@ -499,7 +499,8 @@ def get_patient(patient_id: str, current: Dict = Depends(get_current_user)):
 
 
 @app.post("/api/patients")
-def create_patient(payload: Dict[str, Any] = Body(...), current: Dict = Depends(require_roles("admin", "administrator", "doctor"))):
+def create_patient(payload: Dict[str, Any] = Body(...), current: Dict = Depends(require_roles("admin", "administrator"))):
+    # Registration is a reception task: doctors treat patients that the hospital administrator registered.
     org_id = _patient_org_for_create(current, payload)
     requested_id = payload.get("id")
     allow_duplicate = bool(payload.get("allow_duplicate"))
@@ -511,9 +512,8 @@ def create_patient(payload: Dict[str, Any] = Body(...), current: Dict = Depends(
     # Every patient an administrator registers gets a portal account in the
     # same step — no separate "invite" flow. The administrator sets the
     # patient's initial password directly; the patient can change it after
-    # logging in. (Doctor-created records, e.g. from the clinical pipeline,
-    # are unaffected and stay account-less unless linked later.)
-    creating_account = current.get("role") in ("admin", "administrator")
+    # logging in.
+    creating_account = True
     email = (data.get("email") or "").strip().lower()
     if creating_account:
         if not email:
@@ -578,17 +578,6 @@ def delete_patient(patient_id: str, current: Dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Patient not found.")
     _audit(current, "patient.delete", "patient", patient_id, org_id=doc.get("org_id"))
     return {"status": "deleted", "id": patient_id}
-
-
-@app.put("/api/patients/{patient_id}/medications")
-def set_patient_medications(patient_id: str, meds: List[Dict[str, Any]] = Body(...), current: Dict = Depends(get_current_user)):
-    target = get_patient_for(current, patient_id, "prescribe")  # doctor-only
-    updated = patient_service.set_medications(patient_id, meds)
-    if not updated:
-        raise HTTPException(status_code=404, detail="Patient not found.")
-    _audit(current, "patient.medications_update", "patient", patient_id,
-           org_id=target.get("org_id"), meta={"medication_count": len(meds)})
-    return updated
 
 
 @app.post("/api/patients/{patient_id}/login")

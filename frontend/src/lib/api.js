@@ -116,7 +116,6 @@ export const api = {
   createPatient: (payload) => request('/api/patients', { method: 'POST', body: JSON.stringify(payload) }),
   updatePatient: (id, payload) => request(`/api/patients/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(payload) }),
   deletePatient: (id) => request(`/api/patients/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  setMedications: (id, meds) => request(`/api/patients/${encodeURIComponent(id)}/medications`, { method: 'PUT', body: JSON.stringify(meds) }),
   createPatientLogin: (id, payload) => request(`/api/patients/${encodeURIComponent(id)}/login`, { method: 'POST', body: JSON.stringify(payload) }),
   registerPatient: (p) => request('/api/patient/register', { method: 'POST', body: JSON.stringify(toBackendProfile(p)) }),
 

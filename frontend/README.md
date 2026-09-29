@@ -31,13 +31,15 @@ rebuild it after changing the UI.
 
 ## Signing in
 
-There are no seeded accounts. The first Platform Admin is created from `BOOTSTRAP_ADMIN_EMAIL` /
-`BOOTSTRAP_ADMIN_PASSWORD` (see the root `README.md`); that admin adds hospitals and staff. Doctors,
-pharmacists and patients can also sign up directly — accounts are stored in MongoDB with a hashed password.
+There is no sign-up page. Accounts (Hospital Administrator, Doctor, Pharmacist, Patient) are
+created for you by an administrator and are already linked to the right hospital — see the root
+`README.md`'s "Signing in" section for the full provisioning chain, starting from the
+`BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` platform-admin bootstrap.
 
-- **Auth** (`context/AuthContext.jsx`) — `login`/`signup`/`updateProfile` call
-  `POST /api/auth/login`, `POST /api/auth/register`, `PUT /api/auth/me` directly. The session (JWT +
-  user) is cached in `localStorage` and revalidated against `GET /api/auth/me` on load.
+- **Auth** (`context/AuthContext.jsx`) — `login`/`updateProfile` call
+  `POST /api/auth/login`, `PUT /api/auth/me` directly. The session (JWT +
+  user) is cached in `localStorage` and revalidated against `GET /api/auth/me` on load. The
+  `/signup` route redirects to `/login`.
 - **Patients** (`context/PatientsContext.jsx`) — loads `GET /api/patients` once signed in; add/edit/
   delete call the matching `POST` / `PUT` / `DELETE /api/patients/...` endpoints. If the backend is
   unreachable an error banner with a Retry button is shown.

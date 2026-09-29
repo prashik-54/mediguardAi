@@ -83,25 +83,7 @@ def test_hospital_administrator_org_update_is_also_audited(platform_admin):
     assert matching, "hospital administrator's own-hospital update was not audited"
 
 
-# =========================================================== patient medications audit trail
-def test_medication_update_is_audited(platform_admin):
-    from app.modules.module1_patient import patient_service
-    org = org_store.create(OrganizationCreate(name="Meds Audit Hospital"), created_by=platform_admin["id"])
-    admin = mk("Meds Admin", "hardening-medsadmin@x.io", "administrator", org)
-    doctor = mk("Meds Doctor", "hardening-medsdoc@x.io", "doctor", org)
-    patient = patient_service.create_full_record(
-        {"name": "Med Patient", "phone": "9000000001", "age": 40, "gender": "Male", "egfr": 90, "alt": 20,
-         "org_id": org["id"]}, owner_id=admin["id"])
-    # A doctor may only touch a patient's medication list once assigned via an appointment
-    # (module1's can_access_patient scoping) -- this is by-design scoping, not the gap being
-    # tested here, so set up the assignment first.
-    client.post("/api/appointments", json={"patient_id": patient["id"], "doctor_id": doctor["id"],
-                "reason": "Diabetes review", "appointment_date": "2026-09-25"}, headers=H(admin))
-    r = client.put(f"/api/patients/{patient['id']}/medications",
-                    json=[{"name": "Metformin", "dose": "500mg"}], headers=H(doctor))
-    assert r.status_code == 200
-    rows = audit_log_store.list_all(resource_type="patient", resource_id=patient["id"])
-    assert any(row["action"] == "patient.medications_update" for row in rows)
+
 
 
 # =========================================================== JWT hardening: negative paths

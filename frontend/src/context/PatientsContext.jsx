@@ -92,11 +92,6 @@ export function PatientsProvider({ children }) {
     setPatients((list) => list.filter((p) => p.id !== id));
   }, []);
 
-  const setMeds = useCallback(async (id, meds) => {
-    await api.setMedications(id, meds);
-    setPatients((list) => list.map((p) => (p.id === id ? { ...p, meds } : p)));
-  }, []);
-
   const getPatient = useCallback((id) => patients.find((p) => p.id === id), [patients]);
 
   // Re-pulls one patient from the backend and merges it into the cached list.
@@ -113,7 +108,7 @@ export function PatientsProvider({ children }) {
     return saved;
   }, []);
 
-  const value = useMemo(() => ({ patients, loadState, loadError, addPatient, updatePatient, removePatient, setMeds, getPatient, refreshPatient, bmi, refresh }), [patients, loadState, loadError, addPatient, updatePatient, removePatient, setMeds, getPatient, refreshPatient, refresh]);
+  const value = useMemo(() => ({ patients, loadState, loadError, addPatient, updatePatient, removePatient, getPatient, refreshPatient, bmi, refresh }), [patients, loadState, loadError, addPatient, updatePatient, removePatient, getPatient, refreshPatient, refresh]);
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

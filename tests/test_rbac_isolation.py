@@ -148,8 +148,9 @@ def test_server_generates_id_when_client_proposal_collides(w):
     assert patient_service.get_patient(w.PA1["id"])["org_id"] == w.A["id"]  # A's record untouched
 
 
-def test_patient_and_pharmacist_cannot_create_patients(w):
-    for u in (w.patA, w.pharmA):
+def test_patient_pharmacist_and_doctor_cannot_create_patients(w):
+    # Registration is a hospital-administrator (reception) task only.
+    for u in (w.patA, w.pharmA, w.docA1):
         assert client.post("/api/patients", headers=H(u), json={"name": "X Y"}).status_code == 403
 
 
@@ -186,14 +187,16 @@ def test_delete_patient_matrix(w, actor, target, expected):
     assert r.status_code == expected, r.text
 
 
-def test_medications_are_doctor_only_and_assignment_scoped(w):
-    url = lambda p: f"/api/patients/{p['id']}/medications"
-    meds = [{"name": "Aspirin"}]
-    assert client.put(url(w.PA1), headers=H(w.docA1), json=meds).status_code == 200
-    assert client.put(url(w.PA2), headers=H(w.docA1), json=meds).status_code == 404
-    assert client.put(url(w.PA1), headers=H(w.adminA), json=meds).status_code == 403
-    assert client.put(url(w.PA1), headers=H(w.pharmA), json=meds).status_code == 403
-    assert client.put(url(w.PA1), headers=H(w.patA), json=meds).status_code == 403
+def test_medications_cannot_be_edited_outside_a_prescription(w):
+    """Medications change only via a consultation prescription (synced on finalize).
+    The old direct endpoint is gone and a patient PUT can't smuggle `meds` in for any role."""
+    url = f"/api/patients/{w.PA1['id']}/medications"
+    for u in (w.docA1, w.adminA, w.pharmA, w.patA):
+        assert client.put(url, headers=H(u), json=[{"name": "Aspirin"}]).status_code in (404, 405)
+    r = client.put(f"/api/patients/{w.PA1['id']}", headers=H(w.docA1), json={"meds": [{"name": "Warfarin"}], "phone": "888"})
+    assert r.status_code == 200
+    stored = patient_service.get_patient(w.PA1["id"])
+    assert stored["meds"] == [] and stored["phone"] == "888"
 
 
 # ============================================== /api/patient/register (P0-H)

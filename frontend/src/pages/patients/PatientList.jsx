@@ -32,7 +32,7 @@ export default function PatientList() {
   const [more, setMore] = useState(false);
   const [sort, setSort] = useState({ key: 'id', dir: 1 });
   const [page, setPage] = useState(1);
-  const [form, setForm] = useState(params.get('new') ? { mode: 'add' } : null);
+  const [form, setForm] = useState(params.get('new') && isAdmin ? { mode: 'add' } : null);
   const [confirm, setConfirm] = useState(null);
 
   useEffect(() => { document.title = 'Patients — MediGuard AI'; }, []);
@@ -94,9 +94,9 @@ export default function PatientList() {
 
   return (
     <>
-      <PageHead title="Patient Management" subtitle="Search, register and update patient records.">
+      <PageHead title="Patient Management" subtitle={isAdmin ? 'Search, register and update patient records.' : 'Patients assigned to you. Registration is handled by your hospital administrator.'}>
         <button className="btn btn-outline" onClick={exportCsv}><Download size={15} />Export CSV</button>
-        <button className="btn btn-primary" onClick={() => setForm({ mode: 'add' })}><Plus size={16} />Add Patient</button>
+        {isAdmin && <button className="btn btn-primary" onClick={() => setForm({ mode: 'add' })}><Plus size={16} />Add Patient</button>}
       </PageHead>
 
       <div className="grid cols-4 mb-16">
@@ -136,7 +136,7 @@ export default function PatientList() {
                       <button onClick={() => nav(`/app/patients/${p.id}`)}><Eye size={15} />View profile</button>
                       <button onClick={() => setForm({ mode: 'edit', patient: p })}><Pencil size={15} />Edit</button>
                       {user.role === 'doctor' && <button onClick={() => nav(`/app/ddi?patient=${p.id}`)}><FlaskConical size={15} />Run DDI analysis</button>}
-                      <hr /><button className="danger" onClick={() => setConfirm(p)}><Trash2 size={15} />Delete</button>
+                      {isAdmin && <><hr /><button className="danger" onClick={() => setConfirm(p)}><Trash2 size={15} />Delete</button></>}
                     </Popover>
                   </td>
                 </tr>

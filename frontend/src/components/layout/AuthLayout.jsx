@@ -28,11 +28,6 @@ export default function AuthLayout({ children, back = true, variant = 'login' })
         <div>
           <h2>{title}</h2>
           <p className="sub">{sub}</p>
-          <div className="auth-stats">
-            <div><strong>10K+</strong><span>Active users</span></div>
-            <div><strong>500+</strong><span>Hospitals</span></div>
-            <div><strong>99.9%</strong><span>Uptime</span></div>
-          </div>
         </div>
       </aside>
     </div>

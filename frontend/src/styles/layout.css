@@ -71,11 +71,7 @@
 @keyframes pop-in { from { opacity: 0; transform: translateY(18px) scale(.8); } }
 .auth-visual h2 { font-size: clamp(26px, 2.6vw, 34px); max-width: 420px; margin-bottom: 8px; letter-spacing: -.025em; line-height: 1.12; }
 .auth-visual .sub { color: rgba(255,255,255,.7); max-width: 400px; font-size: 15px; line-height: 1.6; margin-bottom: 28px; }
-.auth-stats { display: grid; grid-template-columns: repeat(3, auto); justify-content: start; gap: 12px; }
-.auth-stats > div { padding: 12px 18px; border-radius: 14px; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.12); backdrop-filter: blur(8px); }
-.auth-stats strong { display: block; font-family: var(--font-display); font-size: 22px; letter-spacing: -.02em; }
-.auth-stats span { font-size: 12.5px; color: rgba(255,255,255,.66); }
-@media (max-width: 1100px) { .auth-main { padding: 26px 32px; } .auth-visual { padding: 36px 34px; } .auth-stats { gap: 8px; } .auth-stats > div { padding: 10px 12px; } }
+@media (max-width: 1100px) { .auth-main { padding: 26px 32px; } .auth-visual { padding: 36px 34px; } }
 @media (max-width: 900px) { .auth-shell { grid-template-columns: 1fr; } .auth-visual { display: none; } .auth-main { padding: 22px 20px; min-height: 100vh; } .auth-card h1 { font-size: 28px; } }
 .seg { position: relative; display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; padding: 4px; background: var(--surface-3); border: 1px solid var(--border); border-radius: 13px; }
 .seg a, .seg button { height: 38px; display: flex; align-items: center; justify-content: center; border: 0; background: none; border-radius: 10px; font-size: 14px; font-weight: 600; color: var(--muted); transition: color .2s, background-color .25s var(--ease), box-shadow .25s var(--ease); }

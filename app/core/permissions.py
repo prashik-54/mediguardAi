@@ -46,7 +46,7 @@ _INACTIVE_APPOINTMENT = ("Cancelled", "No Show")
 
 # Fields a client may never set/overwrite on a patient record.
 PROTECTED_PATIENT_FIELDS = ("_id", "_seq", "org_id", "owner_id", "created_at", "updated_at")
-# Prescribing data: a hospital administrator (reception) may not change it.
+# Prescribing data: only a consultation prescription may change it (never a direct patient edit).
 CLINICAL_ONLY_FIELDS = ("meds", "active_medications", "prescriptive_drugs")
 
 
@@ -182,15 +182,16 @@ def filter_by_patient_access(current: Dict, rows: List[Dict]) -> List[Dict]:
 
 def sanitize_patient_payload(payload: Dict[str, Any], current: Dict, *, drop_id: bool = True) -> Dict[str, Any]:
     """Remove fields a client must never control (hospital, owner, timestamps,
-    and — for a hospital administrator — prescribing data)."""
+    and prescribing data for every role). Medications only change through a
+    prescription in a consultation and are synced to the patient record when
+    that prescription is finalized."""
     clean = dict(payload or {})
     for key in PROTECTED_PATIENT_FIELDS:
         clean.pop(key, None)
     if drop_id:
         clean.pop("id", None)
-    if current.get("role") == HOSPITAL_ADMIN:
-        for key in CLINICAL_ONLY_FIELDS:
-            clean.pop(key, None)
+    for key in CLINICAL_ONLY_FIELDS:
+        clean.pop(key, None)
     return clean
 
 

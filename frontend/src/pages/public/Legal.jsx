@@ -17,7 +17,7 @@ function LegalPage({ title, updated, intro, sections }) {
         {sections.map((s) => <a key={s.id} href={`#/${title === 'Privacy Policy' ? 'privacy' : 'terms'}`} onClick={(e) => { e.preventDefault(); document.getElementById(s.id)?.scrollIntoView({ behavior: 'smooth' }); }}>{s.title}</a>)}
       </nav>
       <article className="legal-body">
-        <div className="callout callout-warn"><span>This is a draft prepared for a research prototype. It must be reviewed by qualified legal counsel before real patient data is processed.</span></div>
+        <div className="callout callout-warn"><span>This is a draft document. It must be reviewed by qualified legal counsel before real patient data is processed.</span></div>
         {sections.map((s) => (
           <section key={s.id} id={s.id}>
             <h2>{s.title}</h2>
