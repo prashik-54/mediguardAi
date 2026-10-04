@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Download, Printer, FileText, Send, RefreshCw, Pill } from 'lucide-react';
+import { Download, Printer, FileText, Send, RefreshCw, Pill, TriangleAlert } from 'lucide-react';
 import { PageHead, EmptyState, LoadingState } from '../../components/ui/Misc';
 import { ConfirmDialog } from '../../components/ui/Modal';
 import { StatusBadge } from '../../components/ui/Badges';
@@ -80,7 +80,7 @@ export default function Reports() {
                 <div className="row gap-8"><span className="badge badge-info no-dot">{p.name}</span><StatusBadge status={report.patient_visible ? 'Finalized' : 'Draft'} /><span className="small muted">{report.patient_visible ? 'Released to patient' : 'Not yet released'} · Patient-safe report: contains no DDI analysis</span></div>
                 <div className="row gap-8 wrap">
                   {canRelease && <><button className="btn btn-primary btn-sm" disabled={busy} onClick={() => setConfirm('release')}><Send size={14} />Release to patient</button>{confirm === 'release' && <ConfirmDialog title="Release report to the patient?" message="The patient will be able to see this report in their portal and will be notified." confirmLabel="Release report" onConfirm={release} onClose={() => setConfirm(null)} />}</>}
-                  {user.role === 'administrator' && <><button className="btn btn-outline btn-sm" disabled={busy} onClick={() => setConfirm('pharmacy')}><Pill size={14} />Send to pharmacy</button>{confirm === 'pharmacy' && <ConfirmDialog title="Send prescription to the pharmacy?" message="The pharmacists at your hospital will receive this finalized prescription for dispensing. Only one order can be created per prescription." confirmLabel="Send to pharmacy" onConfirm={sendPharmacy} onClose={() => setConfirm(null)} />}</>}
+                  {user.role === 'administrator' && report.prescription?.id && <><button className="btn btn-outline btn-sm" disabled={busy} onClick={() => setConfirm('pharmacy')}><Pill size={14} />Send to pharmacy</button>{confirm === 'pharmacy' && <ConfirmDialog title="Send prescription to the pharmacy?" message="The pharmacists at your hospital will receive this finalized prescription for dispensing. Only one order can be created per prescription." confirmLabel="Send to pharmacy" onConfirm={sendPharmacy} onClose={() => setConfirm(null)} />}</>}
                   <button className="btn btn-outline btn-sm" onClick={download}><Download size={14} />Download PDF</button>
                   <button className="btn btn-outline btn-sm" onClick={print}><Printer size={14} />Print</button>
                 </div>
@@ -132,12 +132,20 @@ export default function Reports() {
                     </>
                   )}
 
+                  {report.high_risk_alerts && (
+                    <div className="report-highrisk-box" role="alert">
+                      <b><TriangleAlert size={15} /> HIGH-RISK MEDICINES — SPECIAL CARE REQUIRED</b>
+                      <p className="small mt-4"><b>Medicines:</b> {report.high_risk_alerts.medicines.join(', ')}</p>
+                      <p className="small mt-4"><b>Doctor&apos;s instructions:</b> {report.high_risk_alerts.doctor_instruction}</p>
+                    </div>
+                  )}
+
                   <h3 className="report-section-title">Prescribed medicines ({report.medicines.length})</h3>
                   {report.medicines.length === 0 ? <p className="small muted">No medicines on this prescription.</p> : (
                     <div className="table-wrap report-table"><table className="table">
                       <thead><tr><th>#</th><th>Medicine</th><th>Dose</th><th>Freq / Timing</th><th>Duration</th><th>Route</th><th>Qty</th><th>Instructions</th></tr></thead>
-                      <tbody>{report.medicines.map((m, i) => <tr key={i}>
-                        <td className="muted">{i + 1}</td><td><b>{m.name}</b></td><td>{[m.dose, m.unit].filter(Boolean).join(' ') || '—'}</td>
+                      <tbody>{report.medicines.map((m, i) => <tr key={i} className={m.high_risk_flag ? 'report-row-high' : undefined}>
+                        <td className="muted">{i + 1}</td><td><b>{m.name}</b>{m.high_risk_flag && <span className="badge badge-high" style={{ marginLeft: 6 }}>High risk</span>}</td><td>{[m.dose, m.unit].filter(Boolean).join(' ') || '—'}</td>
                         <td>{[m.frequency, m.timing].filter(Boolean).join(' · ') || '—'}</td><td>{m.duration || '—'}</td><td>{m.route || '—'}</td>
                         <td>{m.quantity != null ? m.quantity : '—'}</td><td className="muted">{m.instructions || '—'}</td>
                       </tr>)}</tbody>

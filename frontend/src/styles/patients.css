@@ -50,3 +50,38 @@
 /* Phase 13 — inline grid override moved to a class so the phone rule can apply */
 .row-edit.tri { grid-template-columns: 1.4fr 1fr 1fr; }
 @media (max-width: 640px) { .row-edit.tri { grid-template-columns: 1fr 1fr; } }
+
+/* Consultation page: step numbers, progress strip, notes grid, sticky actions */
+.sec-num { display: inline-grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: var(--navy-900); color: #fff; font-size: 12px; font-weight: 700; flex: none; }
+.consult-steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+@media (max-width: 800px) { .consult-steps { grid-template-columns: 1fr; } }
+.consult-step { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border: 1px solid var(--border); border-radius: var(--r-sm); background: var(--surface); }
+.consult-step b { display: block; font-size: 13px; }
+.consult-step span:not(.sec-num) { font-size: 12px; color: var(--muted); }
+.consult-step.ok { border-color: var(--low-line, var(--border)); background: var(--low-bg, var(--surface)); }
+.consult-step.ok .sec-num { background: var(--low, #1f9d55); }
+.opt-tag, .req-tag { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
+.opt-tag { background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); }
+.req-tag { background: var(--high-bg); color: var(--high); border: 1px solid var(--high-line, var(--high)); }
+.sticky-actions { position: sticky; bottom: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-sm); box-shadow: 0 -4px 14px rgba(0,0,0,.06); }
+
+/* Consultation notes (v10 structure) with refined colours */
+.notes-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; align-items: stretch; }
+.note-field { display: flex; flex-direction: column; gap: 8px; padding: 16px; border: 1px solid var(--border); border-left: 4px solid var(--border); border-radius: var(--r-sm); background: var(--surface-2); }
+.note-field.wide { grid-column: 1 / -1; }
+@media (max-width: 800px) { .notes-grid { grid-template-columns: 1fr; } }
+.note-field:has(.req-tag) { border-left-color: var(--high); background: var(--surface-2); }
+.note-field:has(.opt-tag) { border-left-color: var(--primary); background: var(--surface-2); }
+.note-field > .row.between { padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.note-field > .row.between b { color: var(--navy-900); }
+.note-field .note-chips { display: grid; gap: 4px; }
+.note-field .note-chips .row { margin-bottom: 0; }
+.note-field .chip-suggest-btn { border: 1px solid var(--primary); background: var(--surface, #fff); color: var(--primary); }
+.note-field .chip-suggest-btn:hover { background: var(--primary); color: #fff; }
+.note-field .field { margin-top: auto; }
+.note-field .textarea { background: var(--surface, #fff); min-height: 96px; border-color: var(--border); }
+.note-field .hint { font-size: 12px; line-height: 1.45; color: var(--text-2, var(--muted)); }
+.note-field:focus-within { box-shadow: 0 0 0 3px var(--primary-soft); border-color: var(--primary); }
+.opt-tag { background: var(--surface, #fff); color: var(--primary); border: 1px solid var(--primary); }
+.req-tag { background: var(--high); color: #fff; border: 1px solid var(--high); }
+.sticky-actions { box-shadow: 0 -4px 14px rgba(0,0,0,.06); }

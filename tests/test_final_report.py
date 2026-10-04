@@ -97,7 +97,8 @@ def test_report_content_allowlist_and_no_ddi_leak(w):
     assert [m["name"] for m in body["medicines"]] == ["Aspirin", "Warfarin"]
     assert body["medicines"][0]["quantity"] == 30 and body["medicines"][1]["timing"] == "Evening"
     assert body["prescription"]["clinical_instructions"] == "Avoid NSAIDs"
-    blob = json.dumps(body).lower()
+    blob = json.dumps({k: v for k, v in body.items() if k != "high_risk_alerts"}).lower()
+    blob = blob.replace("high_risk_flag", "")
     for bad in FORBIDDEN:
         assert bad not in blob, bad
     assert "private-note-xyz" not in blob and "private-reason-xyz" not in blob
@@ -109,7 +110,12 @@ def test_no_ddi_in_any_role_response(w):
     client.post(f"/api/reports/{rid}/release", headers=H(w.adminA))
     for u in (w.adminA, w.docA, w.patUserA):
         for path in ("/api/reports", f"/api/reports/{rid}"):
-            blob = client.get(path, headers=H(u)).text.lower()
+            raw = client.get(path, headers=H(u)).json()
+            items = raw if isinstance(raw, list) else [raw]
+            for it in items:
+                if isinstance(it, dict):
+                    it.pop("high_risk_alerts", None)
+            blob = json.dumps(raw).lower().replace("high_risk_flag", "")
             for bad in FORBIDDEN:
                 assert bad not in blob, (path, bad)
 

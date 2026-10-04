@@ -811,8 +811,11 @@ def complete_encounter(encounter_id: str, current: Dict = Depends(require_roles(
                              detail="Run the DDI analysis and finalize the open prescription before completing this consultation.")
     updated = encounter_store.complete(encounter_id)
     appointment_store.update_status(enc["appointment_id"], "Completed")
+    rpt = _ensure_encounter_report(enc, active_rx, current)
     audit_log_store.log(enc["org_id"], current["id"], current["role"], "encounter.complete",
                          "encounter", encounter_id, {"appointment_id": enc["appointment_id"], "patient_id": enc["patient_id"]})
+    updated = dict(updated or {})
+    updated["report_id"] = rpt["id"]
     return updated
 
 
@@ -1296,6 +1299,27 @@ def _ensure_report(rx: Dict, actor: Dict) -> Dict:
     return rpt
 
 
+def _ensure_encounter_report(enc: Dict, rx: Optional[Dict], actor: Dict) -> Dict:
+    """One report per examined visit -- created when the doctor marks the
+    patient as examined, even if no medicine was prescribed."""
+    existing = report_store.get_for_encounter(enc["id"])
+    if existing:
+        return existing
+    if rx:
+        return _ensure_report(rx, actor)
+    rpt = report_store.create(ReportCreate(encounter_id=enc["id"], patient_id=enc["patient_id"],
+                                            doctor_id=enc["doctor_id"]), org_id=enc["org_id"])
+    audit_log_store.log(enc["org_id"], actor["id"], actor["role"], "report.generate", "report", rpt["id"],
+                         {"encounter_id": enc["id"], "patient_id": enc["patient_id"]})
+    for u in user_store.list_by_org(enc["org_id"]):
+        if u.get("role") == "administrator" and str(u.get("status", "active")).lower() == "active":
+            notification_store.push_to_user(u["id"], "Report ready for release",
+                                             "An examined patient's report is ready for release.",
+                                             org_id=enc["org_id"], type_="REPORT_READY",
+                                             reference_type="report", reference_id=rpt["id"])
+    return rpt
+
+
 def _get_report_scoped(current: Dict, report_id: str) -> Dict:
     r = report_store.get(report_id)
     if not r:
@@ -1311,13 +1335,16 @@ def _get_report_scoped(current: Dict, report_id: str) -> Dict:
 
 
 def _report_view(r: Dict) -> Dict:
-    rx = prescription_store.get(r["prescription_id"]) or {}
+    rx = (prescription_store.get(r["prescription_id"]) if r.get("prescription_id") else None) or {}
     enc = encounter_store.get(r["encounter_id"]) or {}
     pat = patient_service.get_patient(r["patient_id"]) if hasattr(patient_service, "get_patient") else None
     pat = pat or {}
     doc = user_store.get_by_id(r["doctor_id"]) or {}
     hosp = org_store.get(r["org_id"]) or {}
-    return build_patient_view(r, hosp, pat, doc, enc, rx)
+    analysis = ddi_analysis_store.latest_for_prescription(rx.get("id")) if rx.get("id") else None
+    decisions = doctor_decision_store.list_for_prescription(rx["id"]) if rx.get("id") else []
+    decision = decisions[0] if decisions else None
+    return build_patient_view(r, hosp, pat, doc, enc, rx, analysis, decision)
 
 
 _REPORT_ROLES = ("administrator", "doctor", "patient")
@@ -1346,7 +1373,7 @@ def list_reports(current: Dict = Depends(require_roles(*_REPORT_ROLES))):
     out = []
     for r in rows:
         v = _report_view(r)
-        out.append({"id": v["id"], "report_number": v["report_number"], "status": v["status"],
+        out.append({"id": v["id"], "encounter_id": r.get("encounter_id"), "report_number": v["report_number"], "status": v["status"],
                     "patient_visible": v["patient_visible"], "generated_at": v["generated_at"],
                     "patient": {"id": v["patient"]["id"], "name": v["patient"]["name"]},
                     "doctor": {"name": v["doctor"]["name"]}, "medicine_count": len(v["medicines"])})

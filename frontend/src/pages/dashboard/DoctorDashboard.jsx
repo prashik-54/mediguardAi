@@ -62,7 +62,7 @@ export default function DoctorDashboard() {
       <div className="grid cols-4">
         <StatCard icon={Clock} tone="moderate" label="Waiting" value={visits ? waiting : '—'} note={waiting ? 'In queue order' : undefined} onClick={() => nav('/app/queue')} />
         <StatCard icon={Stethoscope} tone="info" label="In consultation" value={visits ? inConsult : '—'} />
-        <StatCard icon={CircleCheck} tone="low" label="Completed visits" value={visits ? completed : '—'} />
+        <StatCard icon={CircleCheck} tone="low" label="Examined patients" value={visits ? completed : '—'} />
         <StatCard icon={Users} label="My patients" value={patients.length} onClick={() => nav('/app/patients')} />
       </div>
 

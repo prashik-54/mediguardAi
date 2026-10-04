@@ -48,6 +48,13 @@ export const FOLLOWUP_SUGGESTIONS = [
   'Continue current medications', 'Refer to specialist if no improvement',
 ];
 
+export const ASSESSMENT_SUGGESTIONS = [
+  'Mild condition, patient stable', 'Moderate severity, needs treatment', 'Responding well to treatment',
+  'No complications noted', 'Condition not improving, needs review', 'Chronic condition, well controlled',
+  'Chronic condition, poorly controlled', 'Reduced kidney function — dose adjustment considered',
+  'Reduced liver function — drug choice reviewed', 'Allergy history reviewed before prescribing',
+];
+
 export function findDrug(name) {
   const q = (name || '').trim().toLowerCase();
   return CATALOG.find((d) => d.name.toLowerCase() === q || d.brands.some((b) => b.toLowerCase() === q));

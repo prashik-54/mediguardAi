@@ -30,7 +30,7 @@ class ReportCreate(BaseModel):
     encounter_id: str
     patient_id: str
     doctor_id: str
-    prescription_id: str
+    prescription_id: Optional[str] = None
 
 
 class ReportStore:
@@ -81,6 +81,9 @@ class ReportStore:
     def get_for_prescription(self, prescription_id: str) -> Optional[Dict]:
         return self.col.find_one({"prescription_id": prescription_id})
 
+    def get_for_encounter(self, encounter_id: str) -> Optional[Dict]:
+        return self.col.find_one({"encounter_id": encounter_id})
+
     def list_for_org(self, org_id: str) -> List[Dict]:
         rows = self.col.find({"org_id": org_id})
         return sorted(rows, key=lambda r: r.get("created_at", 0), reverse=True)
@@ -118,7 +121,8 @@ def _norm_allergies(raw) -> List[Dict[str, Any]]:
 
 def build_patient_view(report: Dict[str, Any], hospital: Dict[str, Any], patient: Dict[str, Any],
                         doctor: Dict[str, Any], encounter: Dict[str, Any],
-                        prescription: Dict[str, Any]) -> Dict[str, Any]:
+                        prescription: Dict[str, Any], analysis: Optional[Dict[str, Any]] = None,
+                        decision: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Assemble the printable/downloadable report from approved fields only.
     Every value is read from a specific, named field on a specific document
     -- nothing is passed through generically, so a DDI analysis document
@@ -126,7 +130,25 @@ def build_patient_view(report: Dict[str, Any], hospital: Dict[str, Any], patient
     the patient's own clinical profile (conditions/allergies/home meds/labs)
     -- this is the patient's own record, not a DDI/interaction finding, so
     Rule 8 (no DDI in the patient report) is unaffected."""
+    # High-risk medicines: only drug names + the doctor's own instruction
+    # reach the report. No mechanism/score/reasoning/alternatives are copied.
+    flagged = set()
+    for pr in ((analysis or {}).get("pairs") or []):
+        if pr.get("interaction_found") and str(pr.get("severity")).lower() == "high":
+            for k in ("drug_a", "drug_b"):
+                if pr.get(k):
+                    flagged.add(str(pr[k]).strip().lower())
+    rx_names = {str(i.get("medicine_name") or "").strip().lower() for i in prescription.get("items", [])}
+    flagged_rx = sorted(n for n in flagged if n in rx_names)
+    note = ((decision or {}).get("reason") or "").strip()
+    high_risk_alerts = {
+        "medicines": [i.get("medicine_name") for i in prescription.get("items", [])
+                      if str(i.get("medicine_name") or "").strip().lower() in flagged_rx],
+        "doctor_instruction": note or "Take these medicines exactly as directed by your doctor and report any unusual symptoms immediately.",
+        "doctor_action": (decision or {}).get("decision"),
+    } if flagged_rx else None
     return {
+        "high_risk_alerts": high_risk_alerts,
         "report_number": report.get("report_number"),
         "status": report.get("status"),
         "generated_at": report.get("finalized_at") or report.get("created_at"),
@@ -188,6 +210,7 @@ def build_patient_view(report: Dict[str, Any], hospital: Dict[str, Any], patient
                 "route": item.get("route"),
                 "instructions": item.get("instructions"),
                 "quantity": item.get("quantity"),
+                "high_risk_flag": str(item.get("medicine_name") or "").strip().lower() in flagged_rx,
             }
             for item in prescription.get("items", [])
         ],
