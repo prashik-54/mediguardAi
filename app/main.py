@@ -27,6 +27,7 @@ from pydantic import BaseModel
 import torch
 
 from app.db import db_mode, ensure_indexes
+from app.ml.dgat_predictor import dgat_predictor
 from app.modules.module1_patient import PatientClinicalProfile, patient_service, missing_clinical_fields
 from app.modules.module2_drug import DrugKnowledgeBase
 from app.modules.module3_pipeline import ClinicalDataPreprocessor
@@ -39,7 +40,7 @@ from app.modules.module9_encounters import EncounterCreate, EncounterUpdate, enc
 from app.modules.module10_prescriptions import PrescriptionCreate, PrescriptionItemIn, PrescriptionUpdate, prescription_store
 from app.modules.module11_ddi_analysis import DDIAnalysisCreate, ddi_analysis_store
 from app.modules.module12_doctor_decision import DoctorDecisionCreate, DECISIONS, doctor_decision_store
-from app.modules.module13_reports import ReportCreate, report_store, build_patient_view
+from app.modules.module13_reports import ReportCreate, report_store, build_patient_view, build_safety_assessment
 from app.modules.module14_pharmacy import (
     PharmacyOrderCreate, DispensingCreate, DISPENSE_STATUSES, pharmacy_order_store, dispensing_store,
 )
@@ -61,9 +62,10 @@ from app.modules.module_auth import (
 
 app = FastAPI(
     title="Personalized DDI & Clinical Risk Framework",
-    description="Backend Pipeline: Modules 1-4 (Patient, Drug KB, Preprocessing, Feature Fusion) "
-                "+ Module 5 (Auth & Reviews) + Module 6 (Notifications) + Module 7 (Analysis History), "
-                "all persisted to MongoDB. The Module 8 clinical dashboard (React) is served at /app once built.",
+    description="Clinical workflow API with a baseline Drug Knowledge Base and supplemental "
+                "DGAT population-level DDI association scoring. Clinical records use MongoDB "
+                "(with an in-memory local-development fallback); the React dashboard is served "
+                "at /app once built.",
     version="2.0.0"
 )
 
@@ -97,6 +99,7 @@ fusion_layer = FeatureFusionLayer()
 
 @app.on_event("startup")
 def on_startup():
+    dgat_predictor.initialize()
     from app.seed import run_bootstrap_admin
     print(f"[MongoDB] Storage mode: {db_mode()}")
     try:
@@ -119,7 +122,7 @@ def on_startup():
 def root():
     return {
         "status": "Online",
-        "progress_level": "Modules 1-7 Active (Deep learning predictor intentionally out of scope)",
+        "progress_level": "Clinical workflow active with supplemental DGAT DDI association scoring",
         "dataset_memory_stats": drug_service.get_dataset_stats(),
         "database": db_mode(),
     }
@@ -134,6 +137,7 @@ def health():
         "status": "ok", "version": app.version, "database": db_mode(),
         "mode": app_env(),
         "ddi_dataset": drug_service.dataset_mode(),
+        "dgat_model": dgat_predictor.health(),
         # No PII: just whether ANY platform-admin/hospital-administrator account exists yet, so the
         # sign-in screen can tell a fresh deployment (no account provisioned) from a live one.
         "admin_accounts_provisioned": admin_roles_provisioned,
@@ -1015,9 +1019,28 @@ def _patient_ddi_factors(patient_data: Dict[str, Any]) -> List[str]:
     return factors
 
 
+def _attach_dgat_predictions(pairs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Add model association scores without changing the clinical severity decision."""
+    for pair in pairs:
+        pair["model_prediction"] = dgat_predictor.predict_pair(
+            pair["drug_a_canonical"], pair["drug_b_canonical"]
+        )
+    return pairs
+
+
 class DDICheckRequest(BaseModel):
     patient_id: str
     medications: List[str] = []
+
+
+@app.get("/api/drugs/catalog")
+def search_drug_catalog(q: Optional[str] = None, current: Dict = Depends(require_roles("doctor"))):
+    if q is None:
+        return drug_service.medicine_catalog()
+    query = q.strip()
+    if len(query) < 2:
+        raise HTTPException(status_code=422, detail="Search with at least two medicine-name characters.")
+    return drug_service.search_medicines(query)
 
 
 @app.post("/api/ddi/check")
@@ -1032,13 +1055,14 @@ def ddi_check(payload: DDICheckRequest, current: Dict = Depends(require_roles("d
     only created by the prescription-linked route."""
     patient_data = get_patient_for(current, payload.patient_id, "read")
     mapped = _map_medicine_names(payload.medications, origin="existing")
-    pairs = _pairwise_ddi(mapped)
+    pairs = _attach_dgat_predictions(_pairwise_ddi(mapped))
     overall_severity = _SEVERITY_LABEL[max((_severity_rank(p["severity"]) for p in pairs), default=0)]
     return {
         "pairs": pairs, "overall_severity": overall_severity,
         "patient_factors": _patient_ddi_factors(patient_data),
-        "engine_version": "modules-1-4",
-        "source": "Baseline DDI ground truth + patient factor rules",
+        "model_info": dgat_predictor.health(),
+        "engine_version": "modules-1-4+dgat",
+        "source": "Baseline DDI lookup + patient-factor rules + supplemental DGAT association score",
     }
 
 
@@ -1046,10 +1070,9 @@ def ddi_check(payload: DDICheckRequest, current: Dict = Depends(require_roles("d
 def run_ddi_analysis(prescription_id: str, current: Dict = Depends(require_roles("doctor"))):
     """Doctor runs DDI analysis on their own Draft/Under-DDI-Review
     prescription (task 'DDI starts from a prescription'). Every medicine
-    pair on the prescription is checked against Module 2's ground-truth
-    lookup (task 'Analyze all medication pairs') -- that lookup, not the
-    Module 4 fusion placeholder, sets `overall_severity`, so a missing
-    interaction can never be silently skipped."""
+    pair on the prescription is checked against Module 2's baseline lookup
+    and the supplemental DGAT association model. The baseline lookup, not the
+    model score, sets `overall_severity` and controls the doctor decision flow."""
     rx = _get_prescription_scoped(current, prescription_id, require_own=True)
     if rx.get("status") not in ("Draft", "Under DDI Review"):
         raise HTTPException(status_code=400, detail=f"This prescription is {rx['status']}; DDI analysis only runs on an editable draft.")
@@ -1074,25 +1097,12 @@ def run_ddi_analysis(prescription_id: str, current: Dict = Depends(require_roles
     # including prescription-vs-existing-medication pairs, not only
     # prescription-vs-prescription ones. Same shared helper /api/ddi/check
     # uses, so the two pages can never disagree about a result.
-    pairs = _pairwise_ddi(mapped)
+    pairs = _attach_dgat_predictions(_pairwise_ddi(mapped))
 
     # Module 3: same patient-factor rules as /api/ddi/check, run once for
     # the whole prescription.
     patient_tensor = preprocessor.preprocess_patient_features(patient_data).unsqueeze(0)
     patient_factors = _patient_ddi_factors(patient_data)
-
-    # Module 4 (part 1): fusion tensor reported as a separate, clearly
-    # non-authoritative shape/readiness placeholder (task 'Keep ML
-    # prediction placeholder separate from ground-truth lookup') -- it
-    # never contributes to `overall_severity`.
-    mock_drug1_embed = torch.randn(1, 16)
-    mock_drug2_embed = torch.randn(1, 16)
-    fused_tensor = fusion_layer(patient_tensor, mock_drug1_embed, mock_drug2_embed)
-    ml_placeholder = {
-        "fused_tensor_shape": list(fused_tensor.shape),
-        "status": "Shape/readiness placeholder only -- not a trained interaction predictor. "
-                  "The ground-truth lookup above is authoritative for severity.",
-    }
 
     overall_severity = _SEVERITY_LABEL[max((_severity_rank(p["severity"]) for p in pairs), default=0)]
 
@@ -1100,12 +1110,12 @@ def run_ddi_analysis(prescription_id: str, current: Dict = Depends(require_roles
         DDIAnalysisCreate(
             encounter_id=rx["encounter_id"], prescription_id=rx["id"], patient_id=rx["patient_id"],
             doctor_id=current["id"], pairs=pairs, overall_severity=overall_severity,
-            patient_factors=patient_factors, engine_version="modules-1-4",
-            source="Baseline DDI ground truth + patient factor rules",
+            patient_factors=patient_factors, engine_version="modules-1-4+dgat",
+            source="Baseline DDI lookup + patient-factor rules + supplemental DGAT association score",
+            model_info=dgat_predictor.health(),
         ),
         org_id=rx["org_id"],
     )
-    analysis["ml_placeholder"] = ml_placeholder  # engine/source shown clearly, never persisted as ground truth
     analysis["existing_medication_count"] = existing_medication_count  # how many pairs pulled in the
                                                                         # patient's other active medicines,
                                                                         # surfaced so the doctor understands
@@ -1238,10 +1248,12 @@ def finalize_prescription(prescription_id: str, current: Dict = Depends(require_
         raise HTTPException(status_code=400, detail=f"This prescription is {status} and cannot be finalized yet.")
 
     finalized = prescription_store.finalize(prescription_id)
+    if not finalized:
+        raise HTTPException(status_code=404, detail="Prescription not found.")
     audit_log_store.log(rx["org_id"], current["id"], current["role"], "prescription.finalize", "prescription",
                          prescription_id, {"encounter_id": rx["encounter_id"], "overall_severity":
                                             latest.get("overall_severity")})
-    _ensure_report(finalized, current)  # Phase 8: hand the report to the hospital administrator
+    _ensure_report(finalized, current)  # Generate and publish the patient's report
     _sync_patient_medications(finalized)  # keep patients.meds current so the next consultation's
                                            # "Current medications" card and DDI checks see this prescription
     return finalized
@@ -1273,29 +1285,39 @@ def _sync_patient_medications(finalized_rx: Dict) -> None:
 
 
 # ===========================================================================
-# FINAL PATIENT/ADMIN REPORT (Phase 8). Built ONLY through
-# module13.build_patient_view (explicit allowlist) from a Finalized
-# prescription + its encounter. No DDI document is ever loaded here, so
-# DDI/severity/score/reasoning cannot reach a report response.
-# Lifecycle: Draft (auto-created on finalize, admin/doctor only) -> Finalized
-# + patient_visible (released by the hospital administrator).
+# FINAL PATIENT/ADMIN REPORT. Built through module13's explicit allowlist
+# from a finalized prescription, its encounter, and a patient-safe screening
+# summary. Raw analysis and clinician decision documents are not serialized.
+# Finalized reports are immediately visible to their own patient.
 # ===========================================================================
 def _ensure_report(rx: Dict, actor: Dict) -> Dict:
-    """Idempotent: one report per finalized prescription. Notifies the
-    hospital's active administrators (reference only -- no PHI)."""
+    """Idempotently publish one patient report for a finalized prescription."""
     existing = report_store.get_for_prescription(rx["id"])
+    was_visible = bool(existing and existing.get("patient_visible"))
     if existing:
-        return existing
-    rpt = report_store.create(ReportCreate(encounter_id=rx["encounter_id"], patient_id=rx["patient_id"],
-                                            doctor_id=rx["doctor_id"], prescription_id=rx["id"]), org_id=rx["org_id"])
-    audit_log_store.log(rx["org_id"], actor["id"], actor["role"], "report.generate", "report", rpt["id"],
-                         {"prescription_id": rx["id"], "patient_id": rx["patient_id"]})
-    for u in user_store.list_by_org(rx["org_id"]):
-        if u.get("role") == "administrator" and str(u.get("status", "active")).lower() == "active":
-            notification_store.push_to_user(u["id"], "Report ready for release",
-                                             "A finalized prescription report is ready for release.",
-                                             org_id=rx["org_id"], type_="REPORT_READY",
-                                             reference_type="report", reference_id=rpt["id"])
+        rpt = existing
+    else:
+        rpt = report_store.create(ReportCreate(encounter_id=rx["encounter_id"], patient_id=rx["patient_id"],
+                                                doctor_id=rx["doctor_id"], prescription_id=rx["id"]), org_id=rx["org_id"])
+        audit_log_store.log(rx["org_id"], actor["id"], actor["role"], "report.generate", "report", rpt["id"],
+                             {"prescription_id": rx["id"], "patient_id": rx["patient_id"]})
+
+    if rpt.get("status") != "Finalized" or not rpt.get("patient_visible"):
+        rpt = report_store.finalize(rpt["id"], patient_visible=True)
+        if not rpt:
+            raise HTTPException(status_code=500, detail="The generated report could not be published.")
+
+    if not was_visible:
+        for u in user_store.list_by_org(rx["org_id"]):
+            if u.get("role") == "administrator" and str(u.get("status", "active")).lower() == "active":
+                notification_store.push_to_user(u["id"], "Report generated",
+                                                 "A finalized report is available to the patient.",
+                                                 org_id=rx["org_id"], type_="REPORT_READY",
+                                                 reference_type="report", reference_id=rpt["id"])
+            if u.get("role") == "patient" and u.get("patientId") == rx["patient_id"]:
+                notification_store.push_to_user(u["id"], "Report available", "Your report is ready to view.",
+                                                 org_id=rx["org_id"], type_="REPORT_RELEASED",
+                                                 reference_type="report", reference_id=rpt["id"])
     return rpt
 
 
@@ -1327,7 +1349,15 @@ def _get_report_scoped(current: Dict, report_id: str) -> Dict:
     role = current["role"]
     if role == "patient":
         if not current.get("patientId") or r.get("patient_id") != current["patientId"] \
-                or not same_org(current, r.get("org_id")) or not r.get("patient_visible"):
+                or not same_org(current, r.get("org_id")):
+            raise HTTPException(status_code=404, detail="Report not found.")
+        if not r.get("patient_visible"):
+            rx = prescription_store.get(r["prescription_id"])
+            if rx and rx.get("status") == "Finalized" \
+                    and rx.get("patient_id") == current["patientId"] \
+                    and rx.get("org_id") == r.get("org_id"):
+                r = _ensure_report(rx, current)
+        if not r.get("patient_visible"):
             raise HTTPException(status_code=404, detail="Report not found.")
     elif not same_org(current, r.get("org_id")) or (role == "doctor" and r.get("doctor_id") != current["id"]):
         raise HTTPException(status_code=404, detail="Report not found.")
@@ -1342,9 +1372,8 @@ def _report_view(r: Dict) -> Dict:
     doc = user_store.get_by_id(r["doctor_id"]) or {}
     hosp = org_store.get(r["org_id"]) or {}
     analysis = ddi_analysis_store.latest_for_prescription(rx.get("id")) if rx.get("id") else None
-    decisions = doctor_decision_store.list_for_prescription(rx["id"]) if rx.get("id") else []
-    decision = decisions[0] if decisions else None
-    return build_patient_view(r, hosp, pat, doc, enc, rx, analysis, decision)
+    safety = build_safety_assessment(pat, rx, analysis)
+    return build_patient_view(r, hosp, pat, doc, enc, rx, analysis, safety)
 
 
 _REPORT_ROLES = ("administrator", "doctor", "patient")
@@ -1360,12 +1389,23 @@ def report_from_prescription(prescription_id: str, current: Dict = Depends(requi
 
 @app.get("/api/reports")
 def list_reports(current: Dict = Depends(require_roles(*_REPORT_ROLES))):
-    """Report history. Patient: own released reports; administrator: own
+    """Report history. Patient: own finalized reports; administrator: own
     hospital; doctor: own reports. Summaries only (allowlisted view)."""
     role = current["role"]
     if role == "patient":
-        rows = report_store.list_for_patient(current["patientId"], visible_only=True) if current.get("patientId") else []
+        rows = report_store.list_for_patient(current["patientId"], visible_only=False) if current.get("patientId") else []
         rows = [r for r in rows if same_org(current, r.get("org_id"))]
+        visible_rows = []
+        for r in rows:
+            if not r.get("patient_visible"):
+                rx = prescription_store.get(r["prescription_id"])
+                if not rx or rx.get("status") != "Finalized" \
+                        or rx.get("patient_id") != current["patientId"] \
+                        or rx.get("org_id") != r.get("org_id"):
+                    continue
+                r = _ensure_report(rx, current)
+            visible_rows.append(r)
+        rows = visible_rows
     else:
         rows = report_store.list_for_org(require_org(current))
         if role == "doctor":
@@ -1391,6 +1431,8 @@ def release_report(report_id: str, current: Dict = Depends(require_roles("admini
     r = _get_report_scoped(current, report_id)
     if r.get("status") != "Finalized":
         r = report_store.finalize(report_id, patient_visible=True)
+        if not r:
+            raise HTTPException(status_code=404, detail="Report not found.")
         audit_log_store.log(r["org_id"], current["id"], current["role"], "report.release", "report", report_id,
                              {"patient_id": r["patient_id"]})
         for u in user_store.list_by_org(r["org_id"]):

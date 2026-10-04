@@ -31,7 +31,13 @@ function InteractionDrawer({ item, onClose, canRequest, patientId }) {
     <Drawer title="Interaction Details" onClose={onClose} footer={canRequest ? <button className="btn btn-primary btn-block" onClick={request}><ClipboardCheck size={16} />Request pharmacist review</button> : null}>
       <div className={`detail-card ${item.severity}`}>
         <TriangleAlert size={22} color={item.severity === 'High' ? 'var(--high)' : item.severity === 'Moderate' ? 'var(--mod)' : 'var(--low)'} style={{ flexShrink: 0 }} />
-        <div><b style={{ color: item.severity === 'High' ? 'var(--high)' : undefined }}>{item.severity} Severity</b><div className="strong">{item.a} + {item.b}</div><div className="small muted">{item.type} interaction</div></div>
+        <div>
+          <b style={{ color: item.severity === 'High' ? 'var(--high)' : undefined }}>
+            {item.modelOnly ? 'Model association signal' : `${item.severity} Severity`}
+          </b>
+          <div className="strong">{item.a} + {item.b}</div>
+          <div className="small muted">{item.type}</div>
+        </div>
       </div>
       <div className="mt-16"><Tabs value={tab} onChange={setTab} label="Interaction details" tabs={[{ id: 'overview', label: 'Overview' }, { id: 'mechanism', label: 'Mechanism' }, { id: 'impact', label: 'Clinical Impact' }, { id: 'evidence', label: 'Evidence' }]} /></div>
       <div className="mt-16">
@@ -42,8 +48,17 @@ function InteractionDrawer({ item, onClose, canRequest, patientId }) {
         </>)}
         {tab === 'mechanism' && (<><h3 style={{ fontSize: 14 }}>How it happens</h3><p className="small mt-8" style={{ lineHeight: 1.7 }}>{item.mechanism}</p><p className="small muted mt-12">Type: <b style={{ color: 'var(--text)' }}>{item.type}</b>. {item.type === 'Pharmacokinetic' ? 'One drug changes how the body absorbs, metabolises or clears the other.' : 'The drugs act on overlapping or opposing pathways in the body.'}</p></>)}
         {tab === 'impact' && (<><h3 style={{ fontSize: 14 }}>What to watch for</h3><ul className="bullets mt-8">{item.effects.map((e) => <li key={e}>{e}</li>)}</ul><div className="callout callout-info mt-16">{item.recommendation}</div></>)}
-        {tab === 'evidence' && (<><h3 style={{ fontSize: 14 }}>Confidence</h3><div className="conf mt-8"><div className="progress"><i style={{ width: `${item.confidence}%` }} /></div><b>{item.confidence}%</b></div>
-          <h3 style={{ fontSize: 14 }} className="mt-16">Source</h3><p className="small mt-4">{item.evidence}</p><p className="tiny muted mt-8">Data source: {item.source}</p></>)}
+        {tab === 'evidence' && (<>
+          {item.modelPrediction?.status === 'scored' && (
+            <div className="callout callout-info">
+              <b>DGAT association score: {(item.modelPrediction.probability * 100).toFixed(1)}%</b>
+              <p className="small mt-4">Population-level TWOSIDES association score; not a patient-specific probability or clinical severity.</p>
+              <p className="small mt-4">{item.modelPrediction.interpretation}</p>
+            </div>
+          )}
+          {item.confidence != null && <><h3 style={{ fontSize: 14 }}>Evidence confidence</h3><div className="conf mt-8"><div className="progress"><i style={{ width: `${item.confidence}%` }} /></div><b>{item.confidence}%</b></div></>}
+          <h3 style={{ fontSize: 14 }} className="mt-16">Source</h3><p className="small mt-4">{item.evidence}</p><p className="tiny muted mt-8">Data source: {item.source}</p>
+        </>)}
       </div>
     </Drawer>
   );
@@ -97,6 +112,7 @@ function Workspace({ patient }) {
   // Read-only: medications are only changed by a prescription during a consultation.
   const meds = patient.meds;
   const [state, setState] = useState('idle'); // idle | loading | done
+  const [analysisError, setAnalysisError] = useState('');
   const [result, setResult] = useState(null);
   const [analysedSig, setAnalysedSig] = useState('');
   const [filter, setFilter] = useState('all');
@@ -107,14 +123,20 @@ function Workspace({ patient }) {
 
   const run = useCallback(async (list, p) => {
     const id = (runId.current += 1);
-    setState('loading'); setAck(false);
-    const t0 = Date.now();
-    const res = await api.analyze(p, list.map((m) => m.name));
-    const wait = Math.max(0, 900 - (Date.now() - t0)); // keep the loading state visible long enough to read
-    await new Promise((r) => setTimeout(r, wait));
-    if (id !== runId.current) return;
-    setResult({ ...res, at: new Date(), id: `DDI-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}` });
-    setAnalysedSig(sig(list)); setState('done');
+    setState('loading'); setAck(false); setAnalysisError('');
+    try {
+      const t0 = Date.now();
+      const res = await api.analyze(p, list.map((m) => m.name));
+      const wait = Math.max(0, 900 - (Date.now() - t0)); // keep the loading state visible long enough to read
+      await new Promise((r) => setTimeout(r, wait));
+      if (id !== runId.current) return;
+      setResult({ ...res, at: new Date(), id: `DDI-${new Date().getFullYear()}-${String(Math.floor(Math.random() * 9000) + 1000)}` });
+      setAnalysedSig(sig(list)); setState('done');
+    } catch (ex) {
+      if (id !== runId.current) return;
+      setAnalysisError(ex.message || 'DDI analysis could not be completed.');
+      setState('idle');
+    }
   }, []);
 
   // Reset the working list and re-run whenever the selected patient changes,
@@ -131,7 +153,7 @@ function Workspace({ patient }) {
   const counts = { all: pairs.length, High: pairs.filter((x) => x.severity === 'High').length, Moderate: pairs.filter((x) => x.severity === 'Moderate').length };
   const shown = filter === 'all' ? pairs : pairs.filter((x) => x.severity === filter);
   const factors = riskFactors(working, meds.length);
-  const score = useMemo(() => riskScore(working, pairs, meds.length), [pairs, patient, meds.length]); // eslint-disable-line
+  const score = useMemo(() => riskScore(working, pairs.filter((x) => !x.modelOnly), meds.length), [pairs, patient, meds.length]); // eslint-disable-line
   const hitNames = new Set(pairs.flatMap((x) => [x.a, x.b]));
   const topHigh = pairs.find((x) => x.severity === 'High');
 
@@ -141,12 +163,21 @@ function Workspace({ patient }) {
         breadcrumbs={<><Link to="/app/patients">Patients</Link><span>/</span><Link to={`/app/patients/${patient.id}`}>{patient.name}</Link><span>/</span><span className="cur">DDI Analysis</span></>}
         title="DDI Analysis Workspace" subtitle="Analyze potential drug–drug interactions in the patient’s current medications.">
         {state === 'done' && <span className={`badge ${result.engine === 'live' ? 'badge-low' : 'badge-neutral'}`} title={result.engine === 'live' ? 'Results include the FastAPI Module 2 lookup' : 'FastAPI backend not reachable — using the built-in reference interaction data'}>{result.engine === 'live' ? <><Wifi size={12} />Live engine</> : <><WifiOff size={12} />Reference data</>}</span>}
+        {state === 'done' && <span className={`badge ${result.modelInfo?.status === 'ready' ? 'badge-info' : 'badge-neutral'}`} title="DGAT score is a population-level TWOSIDES association, not patient-specific clinical risk.">
+          {result.modelInfo?.status === 'ready' ? 'DGAT model ready' : 'DGAT model unavailable'}
+        </span>}
         {state === 'done' && <div className="small muted" style={{ textAlign: 'right' }}><span className="badge badge-low no-dot" style={{ marginRight: 8 }}><CircleCheck size={12} />Analysis Complete</span><div className="mt-4">Analysis ID: {result.id} · {fmtDate(result.at)}</div></div>}
       </PageHead>
 
       {state === 'done' && result.engine === 'reference' && (
         <div className="sys-banner warn" role="status" style={{ borderRadius: 8, marginBottom: 16 }}>
           <span><b>DDI engine not reachable.</b> This check used the built-in reference interaction data. It is not saved to a prescription; run the prescription DDI analysis for the recorded result.</span>
+        </div>
+      )}
+      {analysisError && <div className="sys-banner warn" role="alert" style={{ borderRadius: 8, marginBottom: 16 }}>{analysisError}</div>}
+      {state === 'done' && result.modelInfo?.status !== 'ready' && result.engine === 'live' && (
+        <div className="sys-banner warn" role="status" style={{ borderRadius: 8, marginBottom: 16 }}>
+          <span><b>DGAT model unavailable.</b> The baseline database and patient-factor analysis still ran, but no trained-model score was produced.</span>
         </div>
       )}
       <div className="card card-pad mb-16 row gap-12 wrap">
@@ -192,12 +223,12 @@ function Workspace({ patient }) {
             </div>
             {state === 'loading' && <div className="analysis-state"><div className="spinner" style={{ margin: '0 auto 14px' }} /><b>Analyzing drug interactions…</b><p className="muted small mt-4">This may take a few seconds.</p><div className="indeterminate" style={{ maxWidth: 260, margin: '18px auto 0' }} /></div>}
             {state === 'idle' && <EmptyState icon={Pill} title="Ready when you are">Run the analysis to see interactions between the patient’s current medications.</EmptyState>}
-            {state === 'done' && pairs.length === 0 && <div className="analysis-state"><div className="status-icon ok" style={{ margin: '0 auto 14px' }}><CircleCheck size={28} /></div><b>No known interactions detected</b><p className="muted small mt-4">Based on the current medication list and patient profile.<br />Analysis completed {result.at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.</p></div>}
+            {state === 'done' && pairs.length === 0 && <div className="analysis-state"><div className="status-icon ok" style={{ margin: '0 auto 14px' }}><CircleCheck size={28} /></div><b>No known or above-threshold associations detected</b><p className="muted small mt-4">Based on the current medication list and available engines; an unflagged result does not establish safety.<br />Analysis completed {result.at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.</p></div>}
             {state === 'done' && pairs.length > 0 && (shown.length === 0 ? <p className="muted small" style={{ padding: '10px 20px 24px' }}>No interactions at this severity.</p> : (
               <div className="table-wrap"><table className="table"><thead><tr><th>Medication A</th><th>Medication B</th><th>Severity</th><th>Type</th><th /></tr></thead>
                 <tbody>{shown.map((x) => (
                   <tr key={x.key} className="clickable" onClick={() => setOpenItem(x)} tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') setOpenItem(x); }}>
-                    <td><b>{x.a}</b></td><td><b>{x.b}</b></td><td><SeverityBadge level={x.severity} /></td><td className="muted">{x.type}</td><td className="right"><span className="link-btn">Details</span></td>
+                    <td><b>{x.a}</b></td><td><b>{x.b}</b></td><td>{x.modelOnly ? <span className="badge badge-info no-dot">Model signal</span> : <SeverityBadge level={x.severity} />}</td><td className="muted">{x.type}</td><td className="right"><span className="link-btn">Details</span></td>
                   </tr>))}</tbody></table></div>))}
           </section>
 

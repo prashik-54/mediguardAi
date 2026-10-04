@@ -1,11 +1,10 @@
 """
-Phase 8 -- Final Patient/Admin Report.
+Final Patient/Admin Report.
 
-Covers: report auto-created on finalize, release by hospital administrator,
-allowlisted content (hospital/patient/doctor/visit/medicines/follow-up), NO DDI
-data anywhere in any report response, and access control (patient own-only and
-only after release, administrator own hospital, doctor own reports, pharmacist
-denied, cross-hospital 404).
+Covers: report auto-created and published on finalize, allowlisted content
+including the patient-safe risk summary and exact SHAP explanations, and access
+control (patient own-only, administrator own hospital, doctor own reports,
+pharmacist denied, cross-hospital 404).
 
 Run:  pytest tests/test_final_report.py -v
 """
@@ -15,17 +14,17 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app
+from app.main import app, drug_service
 from app.modules.module1_patient import patient_service
 from app.modules.module_auth import create_token, user_store
 from app.modules.module_org import OrganizationCreate, org_store
+from app.modules.module13_reports import build_safety_assessment, report_store
 
 client = TestClient(app)
 PW = "Passw0rd!xyz"
 HIGH = [{"medicine_name": "Aspirin", "dose": "75", "unit": "mg", "frequency": "Once daily", "duration": "30 days", "quantity": 30},
         {"medicine_name": "Warfarin", "dose": "5", "unit": "mg", "frequency": "Once daily", "timing": "Evening"}]
-FORBIDDEN = ("ddi", "severity", "interaction", "overall_severity", "fusion", "score", "mechanism", "recommendation",
-             "alternative", "reasoning", "decision")
+INTERNAL_FIELDS = ("overall_severity", "model_info", "engine_version", "doctor_decision", "internal_reason")
 
 
 def H(u):
@@ -82,12 +81,14 @@ def test_report_created_on_finalize_and_admin_notified(w):
     rx = _finalized_rx(w, w.PA)
     rid = _rpt(w, rx)
     body = client.get(f"/api/reports/{rid}", headers=H(w.adminA)).json()
-    assert body["status"] == "Draft" and body["patient_visible"] is False
+    assert body["status"] == "Finalized" and body["patient_visible"] is True
     notes = client.get("/api/notifications", headers=H(w.adminA)).json()
     assert any(n.get("reference_id") == rid for n in notes)
+    patient_notes = client.get("/api/notifications", headers=H(w.patUserA)).json()
+    assert any(n.get("reference_id") == rid and n.get("type") == "REPORT_RELEASED" for n in patient_notes)
 
 
-def test_report_content_allowlist_and_no_ddi_leak(w):
+def test_report_content_has_patient_safe_risk_and_shap_explanations(w):
     rx = _finalized_rx(w, w.PA)
     rid = _rpt(w, rx)
     body = client.get(f"/api/reports/{rid}", headers=H(w.adminA)).json()
@@ -97,36 +98,42 @@ def test_report_content_allowlist_and_no_ddi_leak(w):
     assert [m["name"] for m in body["medicines"]] == ["Aspirin", "Warfarin"]
     assert body["medicines"][0]["quantity"] == 30 and body["medicines"][1]["timing"] == "Evening"
     assert body["prescription"]["clinical_instructions"] == "Avoid NSAIDs"
-    blob = json.dumps({k: v for k, v in body.items() if k != "high_risk_alerts"}).lower()
-    blob = blob.replace("high_risk_flag", "")
-    for bad in FORBIDDEN:
+    assert body["high_risk_alerts"]["medicines"] == ["Aspirin", "Warfarin"]
+    assert body["high_risk_alerts"]["doctor_instruction"] == "Avoid NSAIDs"
+    assert all(m["high_risk_flag"] for m in body["medicines"])
+    safety = body["safety_assessment"]
+    assert safety["status"] == "available"
+    assert safety["score"] == 60 and safety["level"] == "Medium"
+    assert safety["tone"] == "moderate"
+    assert safety["findings"][0]["medicines"] == ["Aspirin", "Warfarin"]
+    assert safety["explainability"]["method"].startswith("Exact Shapley (SHAP)")
+    assert sum(item["contribution"] for item in safety["explainability"]["contributions"]) == safety["score"]
+    blob = json.dumps(body).lower()
+    for bad in INTERNAL_FIELDS:
         assert bad not in blob, bad
     assert "private-note-xyz" not in blob and "private-reason-xyz" not in blob
 
 
-def test_no_ddi_in_any_role_response(w):
+def test_patient_safe_assessment_is_consistent_for_authorized_roles(w):
     rx = _finalized_rx(w, w.PA)
     rid = _rpt(w, rx)
-    client.post(f"/api/reports/{rid}/release", headers=H(w.adminA))
     for u in (w.adminA, w.docA, w.patUserA):
         for path in ("/api/reports", f"/api/reports/{rid}"):
-            raw = client.get(path, headers=H(u)).json()
-            items = raw if isinstance(raw, list) else [raw]
-            for it in items:
-                if isinstance(it, dict):
-                    it.pop("high_risk_alerts", None)
-            blob = json.dumps(raw).lower().replace("high_risk_flag", "")
-            for bad in FORBIDDEN:
+            response = client.get(path, headers=H(u))
+            assert response.status_code == 200
+            blob = response.text.lower()
+            for bad in INTERNAL_FIELDS:
                 assert bad not in blob, (path, bad)
+            if path.endswith(rid):
+                body = response.json()
+                assert "safety_assessment" in body
+                assert body["high_risk_alerts"]["medicines"] == ["Aspirin", "Warfarin"]
+                assert "private-reason-xyz" not in blob
 
 
-def test_patient_sees_report_only_after_release_and_only_own(w):
+def test_patient_sees_own_report_immediately_and_cannot_see_another_patient(w):
     rx = _finalized_rx(w, w.PA)
     rid = _rpt(w, rx)
-    assert client.get("/api/reports", headers=H(w.patUserA)).json() == []
-    assert client.get(f"/api/reports/{rid}", headers=H(w.patUserA)).status_code == 404
-    rel = client.post(f"/api/reports/{rid}/release", headers=H(w.adminA))
-    assert rel.status_code == 200 and rel.json()["status"] == "Finalized"
     assert client.get(f"/api/reports/{rid}", headers=H(w.patUserA)).status_code == 200
     assert [r["id"] for r in client.get("/api/reports", headers=H(w.patUserA)).json()] == [rid]
     assert client.get(f"/api/reports/{rid}", headers=H(w.patUserA2)).status_code == 404
@@ -135,11 +142,64 @@ def test_patient_sees_report_only_after_release_and_only_own(w):
     assert any(n.get("reference_id") == rid for n in notes)
 
 
+def test_patient_report_history_publishes_legacy_finalized_reports(w):
+    rx = _finalized_rx(w, w.PA)
+    rid = _rpt(w, rx)
+    report_store.col.update_one(
+        {"id": rid},
+        {"$set": {"status": "Draft", "patient_visible": False, "finalized_at": None}},
+    )
+
+    rows = client.get("/api/reports", headers=H(w.patUserA)).json()
+    assert [row["id"] for row in rows] == [rid]
+    assert client.get(f"/api/reports/{rid}", headers=H(w.patUserA)).json()["patient_visible"] is True
+
+
 def test_patient_cannot_release_or_generate(w):
     rx = _finalized_rx(w, w.PA)
     rid = _rpt(w, rx)
     assert client.post(f"/api/reports/{rid}/release", headers=H(w.patUserA)).status_code == 403
     assert client.post(f"/api/reports/from-prescription/{rx['id']}", headers=H(w.patUserA)).status_code == 403
+
+
+def test_doctor_can_search_model_and_fallback_medicine_catalog(w):
+    complete_catalog = client.get("/api/drugs/catalog", headers=H(w.docA))
+    assert complete_catalog.status_code == 200 and len(complete_catalog.json()) >= 645
+    assert drug_service.map_to_generic("ASPIRIN")["generics"] == ["aspirin"]
+    model_matches = client.get("/api/drugs/catalog?q=aspirin", headers=H(w.docA))
+    assert model_matches.status_code == 200 and any("aspirin" in name.lower() for name in model_matches.json())
+    fallback_matches = client.get("/api/drugs/catalog?q=warf", headers=H(w.docA))
+    assert fallback_matches.status_code == 200 and any(name.lower() == "warfarin" for name in fallback_matches.json())
+    assert client.get("/api/drugs/catalog?q=asp", headers=H(w.patUserA)).status_code == 403
+    assert client.get("/api/drugs/catalog?q=a", headers=H(w.docA)).status_code == 422
+
+
+def test_model_only_signal_is_not_mislabeled_as_patient_risk_and_shap_respects_cap():
+    model_only = build_safety_assessment(
+        {"age": 40, "egfr": 90, "alt": 20},
+        {"items": [{"medicine_name": "A"}, {"medicine_name": "B"}]},
+        {"pairs": [{
+            "drug_a": "A", "drug_b": "B", "interaction_found": False,
+            "model_prediction": {
+                "status": "scored", "model_flag": False,
+                "is_recorded_in_twosides": True, "probability": 0.83,
+            },
+        }]},
+    )
+    assert model_only["score"] == 0
+    assert model_only["findings"][0]["level"] == "Model signal"
+    assert model_only["findings"][0]["association_percent"] == 83.0
+
+    capped = build_safety_assessment(
+        {"age": 80, "egfr": 35, "alt": 90},
+        {"items": [{"medicine_name": str(i)} for i in range(5)]},
+        {"pairs": [
+            {"drug_a": str(i), "drug_b": str(i + 1), "interaction_found": True, "severity": "High"}
+            for i in range(4)
+        ]},
+    )
+    assert capped["score"] == 100
+    assert sum(item["contribution"] for item in capped["explainability"]["contributions"]) == 100
 
 
 def test_cross_hospital_and_role_denials(w):

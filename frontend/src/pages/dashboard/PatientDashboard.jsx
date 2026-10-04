@@ -19,8 +19,8 @@ const ts = (t) => (t ? fmtDate(new Date(t * 1000)) : '—');
 const dose = (m) => [m.dose && `${m.dose}${m.unit ? ` ${m.unit}` : ''}`, m.frequency, m.timing].filter(Boolean).join(' · ');
 const TABS = { overview: 'Overview', appointments: 'Appointments', medications: 'Medications', reports: 'Reports', notifications: 'Notifications' };
 
-/** Patient portal (Phase 10). Every call is self-scoped on the server (/api/portal/*,
- *  /api/reports, /api/notifications); nothing here is demo data and no DDI data exists in these APIs. */
+/** Patient portal. Portal data and report history are self-scoped on the server;
+ *  finalized reports provide a separate patient-safe safety summary. */
 export default function PatientDashboard({ initialTab = 'overview' }) {
   const { user } = useAuth();
   const nav = useNavigate();

@@ -1,10 +1,10 @@
 """
-Phase 10 -- Patient portal.
+Patient portal.
 
-A patient can only ever see their OWN appointments, released reports, medicines
+a patient can only ever see their OWN appointments, finalized reports, medicines
 and notifications; cannot reach another patient's ID/report/prescription/
-notifications; cannot search patients; never sees DDI internals or internal
-consultation data. Run:  pytest tests/test_patient_portal.py -v
+notifications; cannot search patients; never sees clinician decision data or
+internal consultation data. Run:  pytest tests/test_patient_portal.py -v
 """
 import json
 from types import SimpleNamespace
@@ -89,9 +89,10 @@ def test_appointments_only_own(w):
     assert len(client.get("/api/portal/appointments", headers=H(w.userB)).json()) == 1
 
 
-def test_medications_hidden_until_report_released(w):
+def test_medications_visible_after_finalized_report_is_generated(w):
     _visit(w, w.PA, release=False)
-    assert client.get("/api/portal/medications", headers=H(w.userA)).json() == []
+    meds = client.get("/api/portal/medications", headers=H(w.userA)).json()
+    assert len(meds) == 1 and {m["name"] for m in meds[0]["medicines"]} == {"Aspirin", "Warfarin"}
 
 
 def test_medications_after_release_and_dispensing_progress(w):
@@ -125,7 +126,7 @@ def test_no_ddi_or_internal_data_in_any_portal_response(w):
             assert word not in low, word
 
 
-def test_patient_reports_own_released_only_and_cross_patient_404(w):
+def test_patient_reports_own_finalized_only_and_cross_patient_404(w):
     _, _, repA = _visit(w, w.PA)
     _, _, repB = _visit(w, w.PB)
     ids = [r["id"] for r in client.get("/api/reports", headers=H(w.userA)).json()]
@@ -135,10 +136,12 @@ def test_patient_reports_own_released_only_and_cross_patient_404(w):
     assert client.post(f"/api/reports/{repB['id']}/log-access", json={}, headers=H(w.userA)).status_code == 404
 
 
-def test_unreleased_report_not_visible_to_patient(w):
+def test_report_is_patient_visible_as_soon_as_generated(w):
     _, _, rep = _visit(w, w.PA, release=False)
-    assert client.get(f"/api/reports/{rep['id']}", headers=H(w.userA)).status_code == 404
-    assert client.get("/api/reports", headers=H(w.userA)).json() == []
+    response = client.get(f"/api/reports/{rep['id']}", headers=H(w.userA))
+    assert response.status_code == 200
+    assert response.json()["patient_visible"] is True
+    assert [r["id"] for r in client.get("/api/reports", headers=H(w.userA)).json()] == [rep["id"]]
 
 
 def test_patient_cannot_access_other_patient_or_search(w):

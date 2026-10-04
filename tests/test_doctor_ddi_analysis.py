@@ -1,11 +1,10 @@
 """
 Phase 6 — Doctor-Only DDI Integration.
 
-Covers: running the Module 2-4 pipeline against a prescription's medicine
-pairs, persisting the result via module11 linked to
-prescription/encounter/patient/doctor, doctor-own + hospital scoping,
-ground-truth severity (not the Module 4 placeholder) driving
-`overall_severity`, the Draft -> "Under DDI Review" transition, and history
+Covers: running baseline DDI lookup and supplemental DGAT scoring against a
+prescription's medicine pairs, persisting the result via module11 linked to
+prescription/encounter/patient/doctor, doctor-own + hospital scoping, baseline
+severity driving `overall_severity` and prescription status, and history
 listing. Phase 7 (high-severity doctor decision / finalize) is deliberately
 NOT exercised here.
 
@@ -71,17 +70,42 @@ def test_doctor_runs_analysis_and_high_severity_moves_to_awaiting_decision(w):
     """Phase 7 superseded behavior: a High result routes to 'Awaiting
     Doctor Decision', not the plain 'Under DDI Review' (see
     test_high_severity_decision_workflow.py for the Low/Moderate case)."""
-    rx = _mk_rx(w, HIGH_RISK_ITEMS)
+    # Warfarin remains a ground-truth High pair but is outside the model
+    # vocabulary; Metformin exercises an actually scoreable model pair.
+    rx = _mk_rx(w, HIGH_RISK_ITEMS + [
+        {"medicine_name": "Metformin", "dose": "500", "unit": "mg", "frequency": "Once daily"},
+    ])
     r = client.post(f"/api/prescriptions/{rx['id']}/ddi-analysis", headers=H(w.docA))
     assert r.status_code == 200
     body = r.json()
     assert body["prescription_id"] == rx["id"] and body["encounter_id"] == w.enc["id"]
     assert body["patient_id"] == w.PA["id"] and body["doctor_id"] == w.docA["id"]
-    assert len(body["pairs"]) == 1
+    assert len(body["pairs"]) == 3
     assert body["overall_severity"] == "High"
-    assert "ml_placeholder" in body and "fused_tensor_shape" in body["ml_placeholder"]
+    assert body["model_info"]["status"] == "ready"
+    assert body["model_info"]["version"] == "DGAT-TWOSIDES"
+    scored_pair = next(pair for pair in body["pairs"]
+                       if {pair["drug_a_canonical"], pair["drug_b_canonical"]} == {"aspirin", "metformin"})
+    assert scored_pair["model_prediction"]["status"] == "scored"
+    assert "probability" in scored_pair["model_prediction"]
+    examples = scored_pair["model_prediction"]["known_in_twosides"]["examples"]
+    assert examples and all(not example.startswith("[") for example in examples)
     updated_rx = client.get(f"/api/prescriptions/{rx['id']}", headers=H(w.docA)).json()
     assert updated_rx["status"] == "Awaiting Doctor Decision"
+
+
+def test_standalone_check_keeps_model_signal_separate_from_severity(w):
+    r = client.post(
+        "/api/ddi/check",
+        json={"patient_id": w.PA["id"], "medications": ["Aspirin", "Metformin"]},
+        headers=H(w.docA),
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["model_info"]["status"] == "ready"
+    assert body["overall_severity"] == "Low"
+    assert body["pairs"][0]["model_prediction"]["status"] == "scored"
+    assert body["pairs"][0]["model_prediction"]["model_flag"] is True
 
 
 def test_low_risk_pair_reports_low_severity(w):

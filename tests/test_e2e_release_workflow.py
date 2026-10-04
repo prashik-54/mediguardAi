@@ -168,13 +168,13 @@ def test_full_hospital_to_pharmacy_workflow(platform_admin):
     assert r.status_code == 200, r.text
     assert r.json()["status"] == "Finalized"
 
-    # ---- Hospital Administrator generates/releases the patient report ------------------- [x] Final report excludes DDI.
+    # ---- Finalized report is generated and immediately available to the patient ----------
     r = client.post(f"/api/reports/from-prescription/{ns.rx['id']}", headers=H(ns.admin))
     assert r.status_code == 200, r.text
     ns.report = r.json()
-    blob = str(ns.report).lower()
-    for forbidden in ("severity", "interaction", "overall_severity", "fusion", "ml_placeholder", "mechanism"):
-        assert forbidden not in blob, f"DDI leakage in patient report: {forbidden!r}"
+    assert ns.report["patient_visible"] is True
+    assert ns.report["safety_assessment"]["status"] == "available"
+    assert ns.report["safety_assessment"]["explainability"]["method"].startswith("Exact Shapley (SHAP)")
     r = client.post(f"/api/reports/{ns.report['id']}/release", headers=H(ns.admin))
     assert r.status_code == 200 and r.json()["patient_visible"] is True
 
@@ -202,7 +202,7 @@ def test_full_hospital_to_pharmacy_workflow(platform_admin):
     assert client.get(f"/api/pharmacy/orders/{order['id']}", headers=H(other_admin)).status_code == 404
     assert client.post("/api/pharmacy/orders", json={"prescription_id": ns.rx["id"]}, headers=H(other_admin)).status_code == 404
 
-    # ---- Patient sees their own final report, with no DDI data -------------------------- [x] Patient report is self-scoped. / Patient Sees Own Final Report
+    # ---- Patient sees their own final report and safety summary --------------------------
     patient_login = user_store.create("Priya Login", "e2e-patient-login@x.io", PW, "patient",
                                        org=hospital["name"], org_id=hospital["id"], patient_id=ns.patient["id"])
     other_patient_login = user_store.create("Stranger Login", "e2e-stranger@x.io", PW, "patient",
@@ -213,9 +213,8 @@ def test_full_hospital_to_pharmacy_workflow(platform_admin):
     assert not any(rep["id"] == ns.report["id"] for rep in stranger_reports)
     assert client.get(f"/api/reports/{ns.report['id']}", headers=H(other_patient_login)).status_code == 404
     patient_view = client.get(f"/api/reports/{ns.report['id']}", headers=H(patient_login)).json()
-    patient_blob = str(patient_view).lower()
-    for forbidden in ("severity", "interaction", "overall_severity", "fusion", "ml_placeholder"):
-        assert forbidden not in patient_blob, f"DDI leakage in patient-visible report: {forbidden!r}"
+    assert patient_view["safety_assessment"]["status"] == "available"
+    assert patient_view["safety_assessment"]["score"] >= 0
 
     # ---- Suspended account cannot authenticate / use an existing token ------------------ [x] Suspended account cannot authenticate/use existing token.
     old_token_headers = H(ns.doctor)  # token minted before suspension

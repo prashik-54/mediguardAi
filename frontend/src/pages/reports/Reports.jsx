@@ -13,8 +13,8 @@ import '../../styles/reports.css';
 
 const dt = (ts) => (ts ? fmtDate(new Date(ts * 1000)) : '—');
 
-/** Final patient/admin prescription reports — backend-backed (Phase 8).
- *  The API returns an allowlisted view only: no DDI/interaction data exists here. */
+/** Final patient/admin prescription reports — backend-backed and self-scoped for patients.
+ *  The API returns an allowlisted report and patient-safe safety summary only. */
 export default function Reports() {
   const { user } = useAuth();
   const toast = useToast();
@@ -62,6 +62,7 @@ export default function Reports() {
   };
   const canRelease = user.role === 'administrator' && report && !report.patient_visible;
   const h = report?.hospital || {}; const p = report?.patient || {}; const d = report?.doctor || {}; const v = report?.visit || {};
+  const safety = report?.safety_assessment;
 
   return (
     <>
@@ -77,7 +78,7 @@ export default function Reports() {
           ) : (
             <>
               <div className="report-bar no-print">
-                <div className="row gap-8"><span className="badge badge-info no-dot">{p.name}</span><StatusBadge status={report.patient_visible ? 'Finalized' : 'Draft'} /><span className="small muted">{report.patient_visible ? 'Released to patient' : 'Not yet released'} · Patient-safe report: contains no DDI analysis</span></div>
+                <div className="row gap-8"><span className="badge badge-info no-dot">{p.name}</span><StatusBadge status={report.patient_visible ? 'Finalized' : 'Draft'} /><span className="small muted">{report.patient_visible ? 'Available to patient' : 'Not yet released'} · Includes a patient-safe safety summary, not internal analysis records</span></div>
                 <div className="row gap-8 wrap">
                   {canRelease && <><button className="btn btn-primary btn-sm" disabled={busy} onClick={() => setConfirm('release')}><Send size={14} />Release to patient</button>{confirm === 'release' && <ConfirmDialog title="Release report to the patient?" message="The patient will be able to see this report in their portal and will be notified." confirmLabel="Release report" onConfirm={release} onClose={() => setConfirm(null)} />}</>}
                   {user.role === 'administrator' && report.prescription?.id && <><button className="btn btn-outline btn-sm" disabled={busy} onClick={() => setConfirm('pharmacy')}><Pill size={14} />Send to pharmacy</button>{confirm === 'pharmacy' && <ConfirmDialog title="Send prescription to the pharmacy?" message="The pharmacists at your hospital will receive this finalized prescription for dispensing. Only one order can be created per prescription." confirmLabel="Send to pharmacy" onConfirm={sendPharmacy} onClose={() => setConfirm(null)} />}</>}
@@ -109,6 +110,40 @@ export default function Reports() {
                     ); })()}
 
                   {report.prescription?.id && <p className="report-rx-strip">Prescription #{report.prescription.id}{report.prescription.version ? ` · Version ${report.prescription.version}` : ''}</p>}
+
+                  {safety?.status === 'available' ? (
+                    <section className={`report-risk-card ${safety.tone}`} aria-labelledby="report-risk-title">
+                      <div className="report-risk-heading">
+                        <div><h3 id="report-risk-title">Medication safety screening</h3><span className="tiny muted">Screening score, not a probability</span></div>
+                        <div className="report-risk-score" aria-label={`${safety.score} percent screening score`}>
+                          <b>{safety.score}%</b><span>{safety.level} · out of 100</span>
+                        </div>
+                      </div>
+                      <div className="report-risk-track" role="progressbar" aria-label="Screening score" aria-valuemin="0" aria-valuemax="100" aria-valuenow={safety.score}>
+                        <i style={{ width: `${safety.score}%` }} />
+                      </div>
+                      <p className="small">{safety.caveat}</p>
+                      <h4>Recorded medicine findings</h4>
+                      {safety.findings?.length ? safety.findings.map((finding, i) => (
+                        <div className="report-risk-finding" key={`${finding.medicines.join('|')}-${i}`}>
+                          <div className="row gap-8 wrap"><b>{finding.medicines.filter(Boolean).join(' + ')}</b><span className={`badge ${finding.level === 'High' ? 'badge-high' : finding.level === 'Moderate' ? 'badge-moderate' : finding.level === 'Low' ? 'badge-low' : 'badge-info'} no-dot`}>{finding.level}</span></div>
+                          <p className="small mt-4">{finding.explanation}</p>
+                          {finding.association_percent != null && <p className="tiny muted mt-4">Population-level model association: {finding.association_percent}% (not a patient-specific risk estimate).</p>}
+                        </div>
+                      )) : <p className="small muted">No known medicine-pair finding was recorded by the analysis.</p>}
+                      <h4>Why this score (SHAP values)</h4>
+                      {safety.explainability?.contributions?.length ? (
+                        <ul className="report-risk-contributions">
+                          {safety.explainability.contributions.map((item) => (
+                            <li key={item.term}><b>{item.term}: +{item.contribution.toFixed(1)} points</b><span>{item.reason}</span></li>
+                          ))}
+                        </ul>
+                      ) : <p className="small muted">No score-increasing factors were recorded.</p>}
+                      <p className="tiny muted mt-8">{safety.explainability?.method}</p>
+                    </section>
+                  ) : (
+                    <div className="callout callout-warn" role="status">{safety?.message || 'A safety assessment is not available for this report.'}</div>
+                  )}
 
                   {(() => { const cp = report.clinical_profile || {}; const allergies = (cp.allergies || []).map((a) => a.substance).filter(Boolean);
                     return allergies.length > 0 ? <div className="report-allergy-box">Known allergies: {allergies.join(', ')}</div> : null; })()}

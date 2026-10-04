@@ -46,7 +46,13 @@ function PairDrawer({ item, onClose }) {
     <Drawer title="Interaction Details" onClose={onClose}>
       <div className={`detail-card ${item.severity}`}>
         <TriangleAlert size={22} color={sevColor} style={{ flexShrink: 0 }} />
-        <div><b style={{ color: item.severity === 'High' ? 'var(--high)' : undefined }}>{item.severity} Severity</b><div className="strong">{item.drug_a} + {item.drug_b}</div><div className="small muted">{item.interaction_type} interaction</div></div>
+        <div>
+          <b style={{ color: item.severity === 'High' ? 'var(--high)' : undefined }}>
+            {item.model_only ? 'Model association signal' : `${item.severity} Severity`}
+          </b>
+          <div className="strong">{item.drug_a} + {item.drug_b}</div>
+          <div className="small muted">{item.interaction_type}</div>
+        </div>
       </div>
       <div className="mt-16"><Tabs value={tab} onChange={setTab} label="Interaction details" tabs={[{ id: 'overview', label: 'Overview' }, { id: 'mechanism', label: 'Mechanism' }, { id: 'impact', label: 'Clinical Impact' }, { id: 'evidence', label: 'Evidence' }]} /></div>
       <div className="mt-16">
@@ -58,6 +64,13 @@ function PairDrawer({ item, onClose }) {
         {tab === 'mechanism' && (<><h3 style={{ fontSize: 14 }}>How it happens</h3><p className="small mt-8" style={{ lineHeight: 1.7 }}>{item.mechanism || item.description}</p><p className="small muted mt-12">Type: <b style={{ color: 'var(--text)' }}>{item.interaction_type}</b>.</p></>)}
         {tab === 'impact' && (<><h3 style={{ fontSize: 14 }}>What to watch for</h3><ul className="bullets mt-8">{effects.map((e) => <li key={e}>{e}</li>)}</ul>{item.recommendation && <div className="callout callout-info mt-16">{item.recommendation}</div>}</>)}
         {tab === 'evidence' && (<>
+          {item.model_prediction?.status === 'scored' && (
+            <div className="callout callout-info">
+              <b>DGAT association score: {(item.model_prediction.probability * 100).toFixed(1)}%</b>
+              <p className="small mt-4">Population-level TWOSIDES association score; not a patient-specific probability or clinical severity.</p>
+              <p className="small mt-4">{item.model_prediction.interpretation}</p>
+            </div>
+          )}
           {item.confidence != null && <><h3 style={{ fontSize: 14 }}>Confidence</h3><div className="conf mt-8"><div className="progress"><i style={{ width: `${item.confidence}%` }} /></div><b>{item.confidence}%</b></div></>}
           <h3 style={{ fontSize: 14 }} className="mt-16">Source</h3><p className="small mt-4">{item.evidence || item.description}</p><p className="tiny muted mt-8">Data source: {item.data_source}</p>
         </>)}
@@ -94,6 +107,10 @@ export default function Prescription() {
   const [finalizing, setFinalizing] = useState(false);
   const [ddiFilter, setDdiFilter] = useState('all');
   const [openPair, setOpenPair] = useState(null);
+  const [catalogQuery, setCatalogQuery] = useState('');
+  const [catalogBase, setCatalogBase] = useState([]);
+  const [catalogMatches, setCatalogMatches] = useState([]);
+  const [catalogError, setCatalogError] = useState('');
 
   const hydrateRx = (r) => {
     setRx(r);
@@ -140,6 +157,29 @@ export default function Prescription() {
   };
 
   useEffect(() => { document.title = 'Prescription — MediGuard AI'; load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [appointmentId]);
+  useEffect(() => {
+    let active = true;
+    api.drugCatalog()
+      .then((names) => {
+        if (active) { setCatalogBase(names); setCatalogError(''); }
+      })
+      .catch((ex) => { if (active) setCatalogError(ex.message || 'Medicine catalog could not be loaded.'); });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    const query = catalogQuery.trim();
+    if (query.length < 2) {
+      setCatalogMatches(catalogBase);
+      return undefined;
+    }
+    let active = true;
+    const timer = setTimeout(() => {
+      api.searchDrugCatalog(query)
+        .then((matches) => { if (active) { setCatalogMatches(matches); setCatalogError(''); } })
+        .catch((ex) => { if (active) { setCatalogMatches([]); setCatalogError(ex.message || 'Medicine catalog search failed.'); } });
+    }, 250);
+    return () => { active = false; clearTimeout(timer); };
+  }, [catalogBase, catalogQuery]);
 
   // Editable as many times as needed from any status except
   // Finalized/Cancelled -- including after a DDI review or a high-severity
@@ -151,13 +191,16 @@ export default function Prescription() {
   const priorVersions = versions.filter((v) => v.id !== rx?.id);
 
   const setItem = (idx, key, val) => setItems((rows) => rows.map((r, i) => (i === idx ? { ...r, [key]: val } : r)));
-  const setMedicineName = (idx, val) => setItems((rows) => rows.map((r, i) => {
-    if (i !== idx) return r;
-    const drug = findDrug(val);
-    if (!drug) return { ...r, medicine_name: val };
-    const [num, unit] = drug.dose.split(/(?<=\d)(?=\D)/).map((s) => s.trim());
-    return { ...r, medicine_name: val, dose: r.dose || num || r.dose, unit: r.unit || unit || r.unit };
-  }));
+  const setMedicineName = (idx, val) => {
+    setCatalogQuery(val);
+    setItems((rows) => rows.map((r, i) => {
+      if (i !== idx) return r;
+      const drug = findDrug(val);
+      if (!drug) return { ...r, medicine_name: val };
+      const [num, unit] = drug.dose.split(/(?<=\d)(?=\D)/).map((s) => s.trim());
+      return { ...r, medicine_name: val, dose: r.dose || num || r.dose, unit: r.unit || unit || r.unit };
+    }));
+  };
   const addItem = () => setItems((rows) => [...rows, { ...BLANK_ITEM }]);
   const removeItem = (idx) => setItems((rows) => rows.filter((_, i) => i !== idx));
 
@@ -237,12 +280,22 @@ export default function Prescription() {
     [items],
   );
 
-  const hitPairs = useMemo(() => (ddi?.pairs || []).filter((p) => p.interaction_found)
-    .map((p) => ({ ...p, severity: p.severity === 'Moderate/High' ? 'High' : p.severity }))
-    .sort((a, b) => ({ High: 2, Moderate: 1, Low: 0 }[b.severity] - { High: 2, Moderate: 1, Low: 0 }[a.severity])), [ddi]);
+  const hitPairs = useMemo(() => (ddi?.pairs || []).filter((p) => p.interaction_found
+    || (p.model_prediction?.status === 'scored'
+      && (p.model_prediction.model_flag || p.model_prediction.is_recorded_in_twosides)))
+    .map((p) => ({
+      ...p,
+      model_only: !p.interaction_found,
+      severity: p.interaction_found ? (p.severity === 'Moderate/High' ? 'High' : p.severity) : 'None',
+    }))
+    .sort((a, b) => ({ High: 2, Moderate: 1, Low: 0, None: -1 }[b.severity] - { High: 2, Moderate: 1, Low: 0, None: -1 }[a.severity])), [ddi]);
   const topHigh = hitPairs.find((p) => p.severity === 'High');
-  const score = patient ? riskScore(patient, hitPairs, activeMedCount) : null;
+  const score = patient ? riskScore(patient, hitPairs.filter((p) => !p.model_only), activeMedCount) : null;
   const factors = patient ? riskFactors(patient, activeMedCount) : [];
+  const catalogNames = useMemo(
+    () => [...new Set([...CATALOG.map((d) => d.name), ...catalogMatches])],
+    [catalogMatches],
+  );
   // Analysis Results section shows only pairs where an interaction was
   // actually found -- same as the standalone DDI Analysis Workspace --
   // instead of every combination in ddi.pairs (which includes "None found"
@@ -289,7 +342,9 @@ export default function Prescription() {
           This version is {rx.status.toLowerCase()} and can no longer be edited directly. Start a new version to revise it.
         </p>
       )}
-      <datalist id="med-catalog-names">{CATALOG.map((d) => <option key={d.name} value={d.name} />)}</datalist>
+      <datalist id="med-catalog-names">{catalogNames.map((name) => <option key={name} value={name} />)}</datalist>
+      {catalogError && <p className="small muted mb-8" role="status">{catalogError} You can still enter a medicine manually; its dataset/model coverage may be limited.</p>}
+      {!catalogError && <p className="tiny muted mb-8">Searches the loaded medicine and DGAT datasets as you type.</p>}
       <datalist id="med-units">{['mg', 'ml', 'g', 'mcg', 'units', 'tablet(s)', 'drop(s)'].map((u) => <option key={u} value={u} />)}</datalist>
       <datalist id="med-frequencies">{FREQUENCIES.map((f) => <option key={f} value={f} />)}</datalist>
       <datalist id="med-timings">{TIMINGS.map((t) => <option key={t} value={t} />)}</datalist>
@@ -305,8 +360,10 @@ export default function Prescription() {
             </div>
             {items.map((it, idx) => {
               const drug = findDrug(it.medicine_name);
+              const catalogMatch = catalogMatches.some((name) => name.toLowerCase() === (it.medicine_name || '').toLowerCase());
               const nameTitle = drug ? `${drug.cls} · matches drug knowledge base`
-                : it.medicine_name ? 'Not in the drug catalog — DDI check may not recognize this name' : 'Type to search the drug catalog';
+                : catalogMatch ? 'Matches the loaded medicine dataset'
+                  : it.medicine_name ? 'Not in the loaded catalog — DDI check may not recognize this name' : 'Type to search the medicine catalog';
               return (
                 <div className="rx-row" key={idx}>
                   <input className={`input${it.medicine_name && !drug ? ' input-warn' : ''}`} aria-label={`Item ${idx + 1} medicine name`} list="med-catalog-names"
@@ -354,7 +411,7 @@ export default function Prescription() {
       {rx.status !== 'Cancelled' && (
         <section className="card card-pad mt-16">
           <div className="row between mb-12">
-            <div><h2 className="card-title">DDI review (doctor-only)</h2><p className="tiny muted">Analyzes only the medicine items on this prescription version — same interaction engine as the DDI Analysis Workspace. Internal clinical decision support, never included in the patient report or pharmacy order.</p></div>
+            <div><h2 className="card-title">DDI review (doctor-only)</h2><p className="tiny muted">Analyzes only the medicine items on this prescription version — same interaction engine as the DDI Analysis Workspace. Detailed clinical decision support stays internal; the finalized patient report contains only a safe screening summary and score explanation.</p></div>
             <div className="row gap-8">
               <Link className="btn btn-outline btn-sm" to={`/app/ddi?patient=${encodeURIComponent(patient.id)}`}>
                 <FlaskConical size={14} />Open DDI Workspace
@@ -402,7 +459,7 @@ export default function Prescription() {
                       </div>}
                     </div>
                     {hitPairs.length === 0 ? (
-                      <div className="analysis-state"><div className="status-icon ok" style={{ margin: '0 auto 14px' }}><CircleCheck size={28} /></div><b>No known interactions detected</b><p className="muted small mt-4">Based on the current medicine list and patient profile.</p></div>
+                      <div className="analysis-state"><div className="status-icon ok" style={{ margin: '0 auto 14px' }}><CircleCheck size={28} /></div><b>No known or above-threshold associations detected</b><p className="muted small mt-4">An unflagged result does not establish that a combination is safe.</p></div>
                     ) : shownPairs.length === 0 ? (
                       <p className="muted small" style={{ padding: '10px 20px 24px' }}>No interactions at this severity.</p>
                     ) : (
@@ -412,8 +469,8 @@ export default function Prescription() {
                           <tr key={i} className="clickable" onClick={() => setOpenPair(p)} tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') setOpenPair(p); }}>
                             <td><b>{p.drug_a}</b>{p.drug_a_origin === 'existing' && <span className="badge badge-neutral no-dot" style={{ marginLeft: 6 }}>already active</span>}</td>
                             <td><b>{p.drug_b}</b>{p.drug_b_origin === 'existing' && <span className="badge badge-neutral no-dot" style={{ marginLeft: 6 }}>already active</span>}</td>
-                            <td><SeverityBadge level={p.severity} /></td>
-                            <td className="muted">{p.interaction_type}</td>
+                            <td>{p.model_only ? <span className="badge badge-info no-dot">Model signal</span> : <SeverityBadge level={p.severity} />}</td>
+                            <td className="muted">{p.model_only ? 'DGAT model association signal' : p.interaction_type}</td>
                             <td className="right"><span className="link-btn">Details</span></td>
                           </tr>
                         ))}</tbody>
@@ -437,7 +494,11 @@ export default function Prescription() {
                       ))}
                     </div>
                   )}
-                  <p className="small muted mt-12">{ddi.ml_placeholder?.status}</p>
+                  <p className="small muted mt-12">
+                    DGAT model: {ddi.model_info?.status || 'unavailable'}.
+                    Scores are population-level TWOSIDES associations, not patient-specific probabilities or clinical severity;
+                    the existing DDI severity rules continue to control prescription review.
+                  </p>
                 </div>
                 <section className="card card-pad">
                   <h2 className="card-title mb-12">Why this risk score</h2>
@@ -497,7 +558,7 @@ export default function Prescription() {
             <button className="btn btn-primary" disabled={finalizing} onClick={() => setConfirm('finalize')}>
               <CheckCircle2 size={15} />{finalizing ? 'Finalizing…' : 'Confirm & finalize'}
             </button>
-            {confirm === 'finalize' && <ConfirmDialog title="Finalize this prescription?" message="A finalized prescription can no longer be edited (changes require a new version). It will be sent to the Hospital Administrator for the patient report and pharmacy hand-off." confirmLabel="Finalize prescription" onConfirm={finalize} onClose={() => setConfirm(null)} />}
+            {confirm === 'finalize' && <ConfirmDialog title="Finalize this prescription?" message="A finalized prescription can no longer be edited (changes require a new version). Its patient report will be generated and made available to the patient and hospital team; pharmacy hand-off remains a separate step." confirmLabel="Finalize prescription" onConfirm={finalize} onClose={() => setConfirm(null)} />}
           </div>
         </section>
       )}

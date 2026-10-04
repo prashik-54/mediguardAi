@@ -18,12 +18,14 @@ for why no route is added here yet.
 import time
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.db import get_db, next_id
 
 
 class DDIAnalysisCreate(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     encounter_id: str
     prescription_id: str
     patient_id: str
@@ -31,6 +33,7 @@ class DDIAnalysisCreate(BaseModel):
     pairs: List[Dict[str, Any]] = []       # one entry per drug-pair result
     overall_severity: str = "Low"          # Low | Moderate | High
     patient_factors: List[str] = []
+    model_info: Dict[str, Any] = Field(default_factory=dict)
     engine_version: str = "modules-1-4"
     source: str = "Baseline DDI ground truth + patient factor rules"
 
@@ -57,6 +60,7 @@ class DDIAnalysisStore:
             "pairs": payload.pairs,
             "overall_severity": payload.overall_severity,
             "patient_factors": payload.patient_factors,
+            "model_info": payload.model_info,
             "engine_version": payload.engine_version,
             "source": payload.source,
             "created_at": time.time(),

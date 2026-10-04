@@ -1,22 +1,16 @@
 """
 Module 13: Clinical / Patient Report.
 
-This is the object the Hospital Administrator prints/downloads and hands to
-the patient (target workflow Step 8), and the only thing the patient (Step
-10) or hospital admin is ever allowed to see for a visit. It is a separate
-record from the Prescription and the DDI Analysis on purpose.
+This is the patient-facing finalized report. It remains separate from
+prescription and analysis records: `build_patient_view()` serializes an
+explicit allow-list plus a separately constructed, patient-safe screening
+summary. Raw DDI documents and clinician decisions are never passed through.
 
-`build_patient_view()` is the enforcement point for CLAUDE.md Rule 8 ("DDI
-is not the patient report") and the domain-model note: "Do not simply
-serialize the prescription + DDI document together." It takes the
-underlying encounter/prescription/report documents and returns only an
-explicit allow-list of fields -- there is no code path in this function
-that can leak a DDI/interaction field, because DDI documents are never
-passed into it at all.
-
-Phase 8: wired into the authenticated `/api/reports/*` routes in main.py.
+Reports are published when the prescription is finalized and are scoped to
+the patient's own account by the authenticated `/api/reports/*` routes.
 """
 import time
+from math import factorial
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel
@@ -102,11 +96,149 @@ class ReportStore:
 report_store = ReportStore()
 
 
+def _risk_features(patient: Dict[str, Any], prescription: Dict[str, Any],
+                   findings: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    features: List[Dict[str, Any]] = []
+    if findings:
+        rank = {"low": 1, "moderate": 2, "high": 3}
+        highest = max(findings, key=lambda item: rank[item["level"].lower()])
+        points = {"Low": 15, "Moderate": 35, "High": 60}[highest["level"]]
+        features.append({
+            "term": "Highest recorded medicine-pair risk",
+            "points": points,
+            "reason": f"{len(findings)} known medicine-pair finding(s); highest recorded level is {highest['level']}.",
+        })
+        extra = min(16, max(0, len(findings) - 1) * 8)
+        if extra:
+            features.append({
+                "term": "Additional medicine-pair findings",
+                "points": extra,
+                "reason": f"{len(findings) - 1} additional known pair finding(s) increase the screening score.",
+            })
+
+    age = patient.get("age")
+    if isinstance(age, (int, float)) and age > 65:
+        features.append({
+            "term": "Age factor",
+            "points": 12,
+            "reason": f"Age {age} is above the screening rule's 65-year threshold.",
+        })
+
+    egfr = patient.get("kidney_function_egfr", patient.get("egfr"))
+    if isinstance(egfr, (int, float)) and egfr < 60:
+        features.append({
+            "term": "Kidney function",
+            "points": 18 if egfr < 45 else 12,
+            "reason": f"eGFR {egfr} is below 60; reduced kidney function can affect medicine clearance.",
+        })
+
+    alt = patient.get("liver_function_alt", patient.get("alt"))
+    if isinstance(alt, (int, float)) and alt > 50:
+        features.append({
+            "term": "Liver function",
+            "points": 8,
+            "reason": f"ALT {alt} U/L is above the screening rule's 50 U/L threshold.",
+        })
+
+    medication_count = len(prescription.get("items") or [])
+    if medication_count >= 5:
+        features.append({
+            "term": "Number of prescribed medicines",
+            "points": 6,
+            "reason": f"{medication_count} medicines are on this prescription; five or more meets the screening rule's polypharmacy threshold.",
+        })
+    return features
+
+
+def _exact_shapley_values(features: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Calculate exact Shapley contributions for the additive, capped report score."""
+    count = len(features)
+    if not count:
+        return []
+
+    denominator = factorial(count)
+    output = []
+    for index, feature in enumerate(features):
+        contribution = 0.0
+        for mask in range(1 << count):
+            if mask & (1 << index):
+                continue
+            included = mask.bit_count()
+            weight = factorial(included) * factorial(count - included - 1) / denominator
+            without = min(100, sum(features[j]["points"] for j in range(count) if mask & (1 << j)))
+            with_feature = min(100, without + feature["points"])
+            contribution += weight * (with_feature - without)
+        output.append({
+            "term": feature["term"],
+            "contribution": round(contribution, 2),
+            "reason": feature["reason"],
+        })
+    return output
+
+
+def build_safety_assessment(patient: Dict[str, Any], prescription: Dict[str, Any],
+                            analysis: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Create the patient-safe screening summary and its exact score attribution."""
+    if not analysis:
+        return {
+            "status": "unavailable",
+            "message": "A safety assessment is not available for this report.",
+        }
+
+    findings = []
+    known_pairs = []
+    for pair in analysis.get("pairs") or []:
+        model = pair.get("model_prediction") or {}
+        if pair.get("interaction_found"):
+            level = str(pair.get("severity") or "Low")
+            if level.lower() == "moderate/high":
+                level = "High"
+            if level.lower() not in ("low", "moderate", "high"):
+                level = "Low"
+            known_pairs.append({
+                "medicines": [pair.get("drug_a"), pair.get("drug_b")],
+                "level": level.title(),
+                "explanation": pair.get("description") or "A known medicine-pair finding was recorded.",
+            })
+        elif model.get("status") == "scored" and (
+            model.get("model_flag") or model.get("is_recorded_in_twosides")
+        ):
+            findings.append({
+                "medicines": [pair.get("drug_a"), pair.get("drug_b")],
+                "level": "Model signal",
+                "association_percent": round(float(model["probability"]) * 100, 1),
+                "explanation": (
+                    "This pair is recorded in the TWOSIDES dataset; the association score is "
+                    "population-level and is not a patient-specific risk estimate."
+                    if model.get("is_recorded_in_twosides") else
+                    "Population-level model association only; this is not a patient-specific risk estimate."
+                ),
+            })
+
+    features = _risk_features(patient, prescription, known_pairs)
+    score = min(100, sum(feature["points"] for feature in features))
+    level = "High" if score >= 70 else "Medium" if score >= 30 else "Low"
+    tone = "high" if level == "High" else "moderate" if level == "Medium" else "low"
+    shap_values = _exact_shapley_values(features)
+    findings = known_pairs + findings
+    return {
+        "status": "available",
+        "score": score,
+        "level": level,
+        "tone": tone,
+        "findings": findings,
+        "explainability": {
+            "method": "Exact Shapley (SHAP) values for the rule-based screening score",
+            "baseline_score": 0,
+            "contributions": shap_values,
+        },
+        "caveat": "The score is a screening aid, not a probability, diagnosis, or substitute for a clinician's judgment. An unflagged result does not prove a medicine combination is safe.",
+    }
+
+
 # ---------------------------------------------------------------------------
-# Safe patient/admin-facing serialization. This function is the enforcement
-# boundary: only fields explicitly listed here can ever reach a patient or
-# hospital-admin response. No DDI/interaction/severity field name appears
-# anywhere below.
+# Safe patient/admin-facing serialization. Only explicitly allowlisted report
+# fields and the patient-safe safety assessment can reach these responses.
 # ---------------------------------------------------------------------------
 def _norm_allergies(raw) -> List[Dict[str, Any]]:
     out = []
@@ -122,16 +254,14 @@ def _norm_allergies(raw) -> List[Dict[str, Any]]:
 def build_patient_view(report: Dict[str, Any], hospital: Dict[str, Any], patient: Dict[str, Any],
                         doctor: Dict[str, Any], encounter: Dict[str, Any],
                         prescription: Dict[str, Any], analysis: Optional[Dict[str, Any]] = None,
-                        decision: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                        safety_assessment: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Assemble the printable/downloadable report from approved fields only.
     Every value is read from a specific, named field on a specific document
     -- nothing is passed through generically, so a DDI analysis document
     could not leak here even if a caller mistakenly supplied one. Includes
     the patient's own clinical profile (conditions/allergies/home meds/labs)
-    -- this is the patient's own record, not a DDI/interaction finding, so
-    Rule 8 (no DDI in the patient report) is unaffected."""
-    # High-risk medicines: only drug names + the doctor's own instruction
-    # reach the report. No mechanism/score/reasoning/alternatives are copied.
+    -- and separately constructed patient-safe alerts and screening summary.
+    Raw analysis documents and clinician decisions are never serialized."""
     flagged = set()
     for pr in ((analysis or {}).get("pairs") or []):
         if pr.get("interaction_found") and str(pr.get("severity")).lower() == "high":
@@ -140,12 +270,11 @@ def build_patient_view(report: Dict[str, Any], hospital: Dict[str, Any], patient
                     flagged.add(str(pr[k]).strip().lower())
     rx_names = {str(i.get("medicine_name") or "").strip().lower() for i in prescription.get("items", [])}
     flagged_rx = sorted(n for n in flagged if n in rx_names)
-    note = ((decision or {}).get("reason") or "").strip()
     high_risk_alerts = {
         "medicines": [i.get("medicine_name") for i in prescription.get("items", [])
                       if str(i.get("medicine_name") or "").strip().lower() in flagged_rx],
-        "doctor_instruction": note or "Take these medicines exactly as directed by your doctor and report any unusual symptoms immediately.",
-        "doctor_action": (decision or {}).get("decision"),
+        "doctor_instruction": prescription.get("clinical_instructions")
+        or "Take these medicines exactly as prescribed and contact your doctor if you notice unusual symptoms.",
     } if flagged_rx else None
     return {
         "high_risk_alerts": high_risk_alerts,
@@ -190,7 +319,6 @@ def build_patient_view(report: Dict[str, Any], hospital: Dict[str, Any], patient
             "diagnosis": encounter.get("diagnosis"),
             "assessment": encounter.get("assessment"),
             "clinical_findings": encounter.get("clinical_findings"),
-            "notes": encounter.get("notes"),
             "follow_up": encounter.get("follow_up"),
             "date": encounter.get("started_at"),
         },
@@ -214,4 +342,8 @@ def build_patient_view(report: Dict[str, Any], hospital: Dict[str, Any], patient
             }
             for item in prescription.get("items", [])
         ],
+        "safety_assessment": safety_assessment or {
+            "status": "unavailable",
+            "message": "A safety assessment is not available for this report.",
+        },
     }

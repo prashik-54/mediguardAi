@@ -1,6 +1,6 @@
 import os
 import pandas as pd
-from typing import Dict, List
+from typing import Any, Dict, List
 from difflib import get_close_matches
 from app.modules.module3_pipeline import ClinicalDataPreprocessor
 
@@ -11,6 +11,7 @@ class DrugKnowledgeBase:
         base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.indian_csv_path = os.path.join(base_dir, "..", "data", "indian_medicine_data.csv")
         self.ddi_csv_path = os.path.join(base_dir, "..", "data", "ddi_interactions.csv")
+        self.model_drug_table_path = os.path.join(base_dir, "ml", "assets", "drug_table.parquet")
 
         # 1. CANONICAL CHEMICAL DICTIONARY (Standardizes chemical naming variations)
         self.canonical_chemical_map = {
@@ -162,6 +163,29 @@ class DrugKnowledgeBase:
         # Load DataFrames
         self.indian_drugs_df, self.brand_col, self.comp_col = self._load_and_index_indian_data()
         self.ddi_df, self.d1_col, self.d2_col = self._load_and_index_ddi_data()
+        self.model_drugs_df = self._load_model_drug_catalog()
+        self.model_drug_aliases = {}
+        for row in self.model_drugs_df.itertuples():
+            generic = str(row.generic_key).strip()
+            if not generic or generic.lower() == "nan":
+                continue
+            for alias in (row.generic_key, row.drug_name):
+                clean_alias = self.processor.clean_text(str(alias))
+                if clean_alias:
+                    self.model_drug_aliases.setdefault(clean_alias, generic)
+
+    def _load_model_drug_catalog(self):
+        if not os.path.isfile(self.model_drug_table_path):
+            return pd.DataFrame(columns=["generic_key", "drug_name"])
+        try:
+            df = pd.read_parquet(self.model_drug_table_path)
+            required = {"generic_key", "drug_name"}
+            if not required.issubset(df.columns):
+                raise ValueError("DGAT drug table must contain generic_key and drug_name columns.")
+            return df[["generic_key", "drug_name"]].dropna().drop_duplicates()
+        except Exception as exc:
+            print(f" [Warning] DGAT medicine catalog error: {exc}")
+            return pd.DataFrame(columns=["generic_key", "drug_name"])
 
     def _load_and_index_indian_data(self):
         if os.path.exists(self.indian_csv_path):
@@ -208,8 +232,63 @@ class DrugKnowledgeBase:
             "ddi_dataset_mode": self.dataset_mode(),
             "indian_medicine_records_loaded": len(self.indian_drugs_df),
             "ddi_interaction_records_loaded": len(self.ddi_df),
+            "dgat_medicine_records_loaded": len(self.model_drugs_df),
             "status": "Full Datasets Active and Indexed" if not self.indian_drugs_df.empty else "Fallback Mode"
         }
+
+    def medicine_catalog(self) -> List[str]:
+        """Return the complete DGAT vocabulary plus reference medicine aliases."""
+        names: Dict[str, str] = {}
+        model_names = self.model_drugs_df["drug_name"] if not self.model_drugs_df.empty else []
+        for name in model_names:
+            value = str(name).strip()
+            if value and value.lower() != "nan":
+                names.setdefault(value.casefold(), value)
+        for alias in self.canonical_chemical_map:
+            names.setdefault(alias.casefold(), alias.title())
+        for first, second in self.fallback_ddi_map:
+            names.setdefault(first.casefold(), first.title())
+            names.setdefault(second.casefold(), second.title())
+        return sorted(names.values(), key=str.casefold)
+
+    def search_medicines(self, query: str, limit: int = 50) -> List[str]:
+        """Search dataset brand and DGAT vocabulary names for prescription autocomplete."""
+        clean_query = self.processor.clean_text(query)
+        if len(clean_query) < 2:
+            return []
+        limit = max(1, min(limit, 100))
+        results: Dict[str, str] = {}
+
+        def add(name: Any) -> None:
+            if name is None:
+                return
+            value = str(name).strip()
+            if value and value.lower() != "nan":
+                results.setdefault(value.casefold(), value)
+
+        if not self.indian_drugs_df.empty and self.brand_col:
+            matches = self.indian_drugs_df[
+                self.indian_drugs_df["clean_brand_search"].str.contains(clean_query, regex=False, na=False)
+            ]
+            for name in matches[self.brand_col].head(limit):
+                add(name)
+
+        if not self.model_drugs_df.empty:
+            generic = self.model_drugs_df["generic_key"].astype(str)
+            drug_name = self.model_drugs_df["drug_name"].astype(str)
+            matches = self.model_drugs_df[
+                generic.str.contains(clean_query, case=False, regex=False, na=False)
+                | drug_name.str.contains(clean_query, case=False, regex=False, na=False)
+            ]
+            for name in matches["drug_name"].head(limit):
+                add(name)
+
+        for first, second in self.fallback_ddi_map:
+            for name in (first, second):
+                if clean_query in name:
+                    add(name.title())
+
+        return sorted(results.values(), key=lambda name: (not name.casefold().startswith(clean_query), name.casefold()))[:limit]
 
     def _canonicalize_chemical_name(self, name: str) -> str:
         """Converts raw or chemical variations to standardized canonical salt names."""
@@ -229,13 +308,14 @@ class DrugKnowledgeBase:
         cleaned_query = self.processor.clean_text(drug_name)
 
         # Step A: Search in CDSCO CSV Dataset
-        if not self.indian_drugs_df.empty and 'clean_brand_search' in self.indian_drugs_df.columns:
+        brand_col = self.brand_col
+        if not self.indian_drugs_df.empty and brand_col and 'clean_brand_search' in self.indian_drugs_df.columns:
             matches = self.indian_drugs_df[self.indian_drugs_df['clean_brand_search'].str.contains(cleaned_query, regex=False, na=False)]
             
             if not matches.empty:
                 matched_row = matches.iloc[0]
                 raw_comp = str(matched_row[self.comp_col]) if self.comp_col else cleaned_query
-                official_brand = str(matched_row[self.brand_col])
+                official_brand = str(matched_row[brand_col])
                 extracted_tokens = self.processor.extract_generic_tokens(raw_comp)
                 
                 # Normalize through Canonical Resolver
@@ -247,6 +327,15 @@ class DrugKnowledgeBase:
                     "official_matched_brand": official_brand,
                     "raw_composition_field": raw_comp
                 }
+
+        model_generic = self.model_drug_aliases.get(cleaned_query)
+        if model_generic:
+            return {
+                "generics": [model_generic],
+                "source": "DGAT model medicine dataset",
+                "official_matched_brand": drug_name,
+                "raw_composition_field": model_generic,
+            }
 
         # Step B: Direct Canonical Normalization Fallback
         canonical = self._canonicalize_chemical_name(cleaned_query)

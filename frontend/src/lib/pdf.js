@@ -10,15 +10,18 @@ const INFO_BG = [234, 240, 255]; // --info-bg
 const HIGH = [212, 48, 74];      // --high
 const HIGH_BG = [253, 236, 239]; // --high-bg
 const HIGH_LINE = [246, 198, 207]; // --high-line
+const MODERATE = [168, 103, 12];
+const MODERATE_BG = [255, 247, 226];
+const LOW = [37, 130, 98];
+const LOW_BG = [232, 247, 241];
 
 const fmt = (ts) => (ts ? new Date(ts * 1000).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—');
 const fmtDT = (ts) => (ts ? new Date(ts * 1000).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—');
 
 /**
  * Builds the patient-facing prescription report PDF client-side from the
- * backend's allowlisted report view (GET /api/reports/{id}). The view
- * contains no DDI/interaction data, and this function only reads the
- * fields below, so none can be added by accident.
+ * backend's allowlisted report view (GET /api/reports/{id}). Safety findings
+ * are patient-safe and separately serialized from clinician decision records.
  */
 export async function downloadReportPdf(report) {
   const { jsPDF } = await import('jspdf'); // loaded on demand to keep the main bundle small
@@ -30,6 +33,7 @@ export async function downloadReportPdf(report) {
 
   const h = report.hospital || {}; const p = report.patient || {}; const d = report.doctor || {};
   const v = report.visit || {}; const rx = report.prescription || {}; const cp = report.clinical_profile || {};
+  const safety = report.safety_assessment || {};
   const meds = report.medicines || [];
 
   const drawHeader = () => {
@@ -107,6 +111,37 @@ export async function downloadReportPdf(report) {
     doc.text(l, M, y);
     y += l.length * 4.6 + 4;
   };
+
+  if (safety.status === 'available') {
+    section('Medication safety screening');
+    ensure(22);
+    const toneColor = safety.tone === 'high' ? HIGH : safety.tone === 'moderate' ? MODERATE : LOW;
+    const toneBg = safety.tone === 'high' ? HIGH_BG : safety.tone === 'moderate' ? MODERATE_BG : LOW_BG;
+    doc.setDrawColor(...toneColor); doc.setFillColor(...toneBg); doc.setLineWidth(0.4);
+    doc.roundedRect(M, y, CW, 17, 2, 2, 'FD');
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(...toneColor);
+    doc.text(`${safety.score}%`, M + 5, y + 7);
+    doc.setFontSize(9.2); doc.text(`${safety.level} screening score · out of 100`, M + 28, y + 6.5);
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.8); doc.setTextColor(...SLATE);
+    doc.text('Screening score, not a probability', M + 28, y + 12);
+    y += 21;
+    paragraph(safety.caveat || '');
+
+    (safety.findings || []).forEach((finding) => {
+      const names = (finding.medicines || []).filter(Boolean).join(' + ');
+      paragraph(`${names} — ${finding.level}: ${finding.explanation}${finding.association_percent != null ? ` Population-level model association: ${finding.association_percent}% (not patient-specific).` : ''}`);
+    });
+
+    section('Why this score (SHAP values)');
+    (safety.explainability?.contributions || []).forEach((item) => {
+      paragraph(`${item.term}: +${Number(item.contribution).toFixed(1)} points. ${item.reason}`);
+    });
+    if (!safety.findings?.length) paragraph('No known medicine-pair finding was recorded by the analysis.');
+    if (!safety.explainability?.contributions?.length) paragraph('No score-increasing factors were recorded.');
+  } else if (safety.message) {
+    section('Medication safety screening');
+    paragraph(safety.message);
+  }
 
   // Allergies — safety-critical, called out in a highlighted box
   if ((cp.allergies || []).length > 0) {

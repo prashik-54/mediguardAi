@@ -31,6 +31,25 @@
 .report-important-box { border: 1px solid var(--info-line); background: var(--info-bg); border-radius: var(--r-sm); padding: 12px 16px; margin-top: 20px; }
 .report-important-box b { color: var(--navy-900); font-size: 12.5px; letter-spacing: .03em; }
 .report-important-box p { font-size: 12.5px; color: var(--text-2); margin-top: 4px; }
+.report-risk-card { border: 1px solid var(--border); border-radius: var(--r-md); padding: 16px; margin: 16px 0; background: var(--surface); }
+.report-risk-card.high { border-color: var(--high-line); background: var(--high-bg); }
+.report-risk-card.moderate { border-color: var(--mod-line); background: var(--mod-bg); }
+.report-risk-card.low { border-color: var(--low-line); background: var(--low-bg); }
+.report-risk-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.report-risk-heading h3 { margin: 0 0 3px; color: var(--navy-900); }
+.report-risk-score { text-align: right; color: var(--text); }
+.report-risk-score b { display: block; font-family: var(--font-display); font-size: 28px; line-height: 1.1; }
+.report-risk-score span { color: var(--muted); font-size: 11px; }
+.report-risk-track { height: 8px; overflow: hidden; margin: 12px 0; border-radius: 99px; background: rgba(95, 119, 132, .18); }
+.report-risk-track i { display: block; height: 100%; border-radius: inherit; background: var(--low); }
+.report-risk-card.high .report-risk-track i { background: var(--high); }
+.report-risk-card.moderate .report-risk-track i { background: var(--mod); }
+.report-risk-card h4 { margin: 14px 0 7px; color: var(--navy-900); font-size: 12px; }
+.report-risk-finding { padding: 8px 0; border-top: 1px solid rgba(95, 119, 132, .18); }
+.report-risk-contributions { display: grid; gap: 8px; padding: 0; margin: 8px 0 0; list-style: none; }
+.report-risk-contributions li { display: grid; gap: 3px; font-size: 12px; }
+.report-risk-contributions li b { color: var(--text); }
+.report-risk-contributions li span { color: var(--text-2); }
 .report-table thead th { background: var(--navy-900); color: #fff; font-size: 11px; letter-spacing: .03em; text-transform: uppercase; }
 .report-table { border: 1px solid var(--border); border-radius: var(--r-sm); overflow: hidden; }
 .report-footnote { font-size: 11px; color: var(--muted); border-top: 1px solid var(--border); margin-top: 22px; padding: 14px 30px 22px; }

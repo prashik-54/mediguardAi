@@ -141,6 +141,8 @@ export const api = {
   updatePrescription: (id, patch) => request(`/api/prescriptions/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(patch) }),
   newPrescriptionVersion: (id) => request(`/api/prescriptions/${encodeURIComponent(id)}/new-version`, { method: 'POST' }),
   patientPrescriptions: (patientId) => request(`/api/patients/${encodeURIComponent(patientId)}/prescriptions`),
+  drugCatalog: () => request('/api/drugs/catalog'),
+  searchDrugCatalog: (query) => request(`/api/drugs/catalog?q=${encodeURIComponent(query)}`),
 
   // -------------------------------------------- doctor-only DDI (Phase 6)
   // Ad-hoc, unsaved check used by the standalone DDI Analysis Workspace --
@@ -199,26 +201,42 @@ export const api = {
    * Returns { engine: 'live' | 'reference', pairs: [...] } — never throws.
    */
   async analyze(patient, medNames) {
+    let health;
+    let backendAvailable = false;
     try {
-      await this.health(); // skip the network round-trip entirely when the API isn't running
+      health = await this.health();
+      backendAvailable = true;
       await this.registerPatient(patient).catch(() => {}); // doctor-only sync; other roles still run the analysis
       const result = await this.checkDdi(patient.id, medNames);
       const pairs = (result.pairs || [])
-        .filter((p) => p.interaction_found)
+        .filter((p) => p.interaction_found || (p.model_prediction?.status === 'scored'
+          && (p.model_prediction.model_flag || p.model_prediction.is_recorded_in_twosides)))
         .map((p) => ({
           a: p.drug_a, b: p.drug_b, key: `${p.drug_a}|${p.drug_b}`,
-          severity: p.severity === 'Moderate/High' ? 'High' : p.severity,
-          type: p.interaction_type || 'Pharmacodynamic',
-          confidence: p.confidence ?? 70,
-          mechanism: p.mechanism || p.description,
-          effects: p.effects?.length ? p.effects : [p.interaction_type].filter(Boolean),
-          recommendation: p.recommendation || 'Review with a clinical pharmacist before continuing the combination.',
-          evidence: p.evidence || p.data_source || 'DDI engine',
-          source: p.data_source || 'DDI engine',
+          modelOnly: !p.interaction_found,
+          severity: p.interaction_found ? (p.severity === 'Moderate/High' ? 'High' : p.severity) : 'None',
+          type: p.interaction_found ? p.interaction_type || 'Pharmacodynamic' : 'DGAT model association signal',
+          confidence: p.interaction_found ? p.confidence ?? 70 : null,
+          mechanism: p.interaction_found
+            ? p.mechanism || p.description
+            : 'The DGAT model assigned this pair a population-level association score based on TWOSIDES data.',
+          effects: p.effects?.length ? p.effects : p.interaction_found ? [p.interaction_type].filter(Boolean) : [],
+          recommendation: p.interaction_found
+            ? p.recommendation || 'Review with a clinical pharmacist before continuing the combination.'
+            : 'This score is not a clinical determination. Review the pair using current clinical references and professional judgment.',
+          evidence: p.evidence || p.model_prediction?.interpretation || p.data_source || 'DDI engine',
+          source: p.data_source || 'DGAT / TWOSIDES association model',
+          modelPrediction: p.model_prediction,
         }))
         .sort((x, y) => SEVERITY_RANK[y.severity] - SEVERITY_RANK[x.severity]);
-      return { engine: 'live', pairs };
-    } catch {
+      return {
+        engine: 'live',
+        modelInfo: result.model_info || health.dgat_model || { status: 'unknown' },
+        patientFactors: result.patient_factors || [],
+        pairs,
+      };
+    } catch (error) {
+      if (backendAvailable || error.status) throw error;
       // Backend unreachable -- built-in offline reference data only (clearly
       // labelled in the UI as 'reference', never persisted to a prescription).
       const out = [];
@@ -229,7 +247,7 @@ export const api = {
         }
       }
       out.sort((x, y) => SEVERITY_RANK[y.severity] - SEVERITY_RANK[x.severity]);
-      return { engine: 'reference', pairs: out };
+      return { engine: 'reference', modelInfo: { status: 'unavailable' }, patientFactors: [], pairs: out };
     }
   },
 };
