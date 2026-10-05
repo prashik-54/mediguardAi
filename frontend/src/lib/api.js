@@ -153,6 +153,8 @@ export const api = {
   runDdiAnalysis: (prescriptionId) => request(`/api/prescriptions/${encodeURIComponent(prescriptionId)}/ddi-analysis`, { method: 'POST' }),
   latestDdiAnalysis: (prescriptionId) => request(`/api/prescriptions/${encodeURIComponent(prescriptionId)}/ddi-analysis`),
   ddiAnalysisHistory: (prescriptionId) => request(`/api/prescriptions/${encodeURIComponent(prescriptionId)}/ddi-analyses`),
+  getPrescriptionExplainability: (prescriptionId) => request(`/api/prescriptions/${encodeURIComponent(prescriptionId)}/explainability`),
+  explainDdiPair: (patientId, drugA, drugB) => request('/api/ddi/explain', { method: 'POST', body: JSON.stringify({ patient_id: patientId, drug_a: drugA, drug_b: drugB }) }),
 
   // ------------------------------- high-severity decision + finalize (Phase 7)
   recordDoctorDecision: (prescriptionId, payload) => request(`/api/prescriptions/${encodeURIComponent(prescriptionId)}/decision`, { method: 'POST', body: JSON.stringify(payload) }),

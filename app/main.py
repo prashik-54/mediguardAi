@@ -45,6 +45,8 @@ from app.modules.module14_pharmacy import (
     PharmacyOrderCreate, DispensingCreate, DISPENSE_STATUSES, pharmacy_order_store, dispensing_store,
 )
 from app.modules.module15_audit import audit_log_store
+from app.modules.module16_explainability import explainability_store
+from app.ml.shap_explainer import shap_explainability_engine
 from app.modules.module_org import OrganizationCreate, OrganizationUpdate, org_store
 from app.core.permissions import (
     is_platform_admin as _is_platform_admin, require_org, require_own_hospital as _require_own_hospital,
@@ -138,6 +140,7 @@ def health():
         "mode": app_env(),
         "ddi_dataset": drug_service.dataset_mode(),
         "dgat_model": dgat_predictor.health(),
+        "shap_engine": shap_explainability_engine.health(),
         # No PII: just whether ANY platform-admin/hospital-administrator account exists yet, so the
         # sign-in screen can tell a fresh deployment (no account provisioned) from a live one.
         "admin_accounts_provisioned": admin_roles_provisioned,
@@ -1154,6 +1157,87 @@ def latest_ddi_analysis(prescription_id: str, current: Dict = Depends(require_ro
     if not latest:
         raise HTTPException(status_code=404, detail="No DDI analysis has been run for this prescription yet.")
     return latest
+
+
+# ===========================================================================
+# MODULE 16: SHAP MODEL EXPLAINABILITY (Prescription & DDI Analysis linked)
+# ===========================================================================
+@app.get("/api/prescriptions/{prescription_id}/explainability")
+def get_prescription_explainability(prescription_id: str, current: Dict = Depends(require_roles("doctor"))):
+    """Doctor-only SHAP explainability for the latest DDI analysis of this prescription."""
+    rx = _get_prescription_scoped(current, prescription_id, require_own=True)
+    latest_analysis = ddi_analysis_store.latest_for_prescription(rx["id"])
+    if not latest_analysis:
+        raise HTTPException(status_code=400, detail="Run DDI analysis first before retrieving explainability.")
+
+    # Check if already computed
+    exp = explainability_store.get_for_analysis(latest_analysis["id"])
+    if not exp:
+        patient_data = get_patient_for(current, rx["patient_id"], "read")
+        exp = explainability_store.generate_for_analysis(
+            analysis_doc=latest_analysis,
+            patient_doc=patient_data,
+            prescription_doc=rx,
+            doctor_id=current["id"],
+            org_id=rx["org_id"],
+        )
+    _audit(current, "explainability.view", "prescription", prescription_id, org_id=rx["org_id"],
+           meta={"analysis_id": latest_analysis["id"]})
+    return exp
+
+
+@app.get("/api/analyses/{analysis_id}/explainability")
+def get_analysis_explainability(analysis_id: str, current: Dict = Depends(require_roles("doctor"))):
+    """Doctor-only SHAP explainability by analysis ID."""
+    analysis = ddi_analysis_store.get(analysis_id)
+    if not analysis:
+        raise HTTPException(status_code=404, detail="Analysis not found.")
+    if not _is_platform_admin(current) and analysis.get("org_id") != current.get("org_id"):
+        raise HTTPException(status_code=403, detail="Cannot access an analysis from another hospital.")
+
+    exp = explainability_store.get_for_analysis(analysis_id)
+    if not exp:
+        rx = prescription_store.get(analysis.get("prescription_id", "")) or {}
+        patient_data = get_patient_for(current, analysis["patient_id"], "read")
+        exp = explainability_store.generate_for_analysis(
+            analysis_doc=analysis,
+            patient_doc=patient_data,
+            prescription_doc=rx,
+            doctor_id=current["id"],
+            org_id=analysis["org_id"],
+        )
+    return exp
+
+
+@app.post("/api/ddi/explain")
+def explain_ad_hoc_ddi(payload: Dict[str, Any] = Body(...), current: Dict = Depends(require_roles("doctor"))):
+    """Doctor-only on-the-fly SHAP explanation for an ad-hoc pair and patient profile."""
+    patient_id = payload.get("patient_id")
+    drug_a = payload.get("drug_a") or payload.get("drug1")
+    drug_b = payload.get("drug_b") or payload.get("drug2")
+    if not drug_a or not drug_b:
+        raise HTTPException(status_code=400, detail="Both 'drug_a' and 'drug_b' are required.")
+
+    patient_data = {}
+    if patient_id:
+        patient_data = get_patient_for(current, patient_id, "read") or {}
+
+    mapped = _map_medicine_names([drug_a, drug_b], origin="adhoc")
+    pairs = _attach_dgat_predictions(_pairwise_ddi(mapped))
+    pair_result = pairs[0] if pairs else {
+        "drug_a": drug_a, "drug_b": drug_b, "severity": "Low", "interaction_found": False
+    }
+
+    explanation = shap_explainability_engine.explain_ddi_pair_complete(
+        drug_a=drug_a,
+        drug_b=drug_b,
+        patient_data=patient_data,
+        prescription_data={"items": [{"medicine_name": drug_a}, {"medicine_name": drug_b}]},
+        pair_analysis=pair_result,
+    )
+    return explanation
+
+
 
 
 # ===========================================================================

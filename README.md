@@ -175,7 +175,8 @@ the intended user-facing flow.
 │       ├── module12_doctor_decision.py # High-severity doctor decision workflow
 │       ├── module13_reports.py       # Patient-safe reports and Shapley score explanations
 │       ├── module14_pharmacy.py      # Pharmacy orders + dispensing
-│       └── module15_audit.py         # Hospital-scoped audit log
+│       ├── module15_audit.py         # Hospital-scoped audit log
+│       └── module16_explainability.py # SHAP multi-level deep learning & biomarker explainability
 │
 ├── frontend/                     # React + Vite SPA
 │   ├── index.html
