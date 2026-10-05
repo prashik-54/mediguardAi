@@ -38,8 +38,22 @@ const stripped = (items) => items
 // (pages/ddi/DDIWorkspace.jsx), adapted to the prescription pair shape
 // (drug_a/drug_b instead of a/b) so both surfaces present a result the
 // same way (task 'result of ddi analysis should be like DDI checker page').
-function PairDrawer({ item, onClose }) {
+function PairDrawer({ item, patientId, onClose }) {
   const [tab, setTab] = useState('overview');
+  const [explainData, setExplainData] = useState(null);
+  const [explainLoading, setExplainLoading] = useState(false);
+  const toast = useToast();
+
+  useEffect(() => {
+    if (tab === 'explainability' && !explainData && !explainLoading) {
+      setExplainLoading(true);
+      api.explainDdiPair(patientId, item.drug_a, item.drug_b)
+        .then((res) => setExplainData(res))
+        .catch((err) => toast.error(err.message || 'Could not calculate SHAP explainability.'))
+        .finally(() => setExplainLoading(false));
+    }
+  }, [tab, explainData, explainLoading, patientId, item.drug_a, item.drug_b, toast]);
+
   const sevColor = item.severity === 'High' ? 'var(--high)' : item.severity === 'Moderate' ? 'var(--mod)' : 'var(--low)';
   const effects = item.effects && item.effects.length ? item.effects : [item.description];
   return (
@@ -54,7 +68,7 @@ function PairDrawer({ item, onClose }) {
           <div className="small muted">{item.interaction_type}</div>
         </div>
       </div>
-      <div className="mt-16"><Tabs value={tab} onChange={setTab} label="Interaction details" tabs={[{ id: 'overview', label: 'Overview' }, { id: 'mechanism', label: 'Mechanism' }, { id: 'impact', label: 'Clinical Impact' }, { id: 'evidence', label: 'Evidence' }]} /></div>
+      <div className="mt-16"><Tabs value={tab} onChange={setTab} label="Interaction details" tabs={[{ id: 'overview', label: 'Overview' }, { id: 'mechanism', label: 'Mechanism' }, { id: 'impact', label: 'Clinical Impact' }, { id: 'evidence', label: 'Evidence' }, { id: 'explainability', label: 'Explainability (SHAP)' }]} /></div>
       <div className="mt-16">
         {tab === 'overview' && (<>
           <h3 style={{ fontSize: 14 }}>Summary</h3><p className="small mt-4" style={{ lineHeight: 1.7 }}>{item.mechanism || item.description}</p>
@@ -74,6 +88,73 @@ function PairDrawer({ item, onClose }) {
           {item.confidence != null && <><h3 style={{ fontSize: 14 }}>Confidence</h3><div className="conf mt-8"><div className="progress"><i style={{ width: `${item.confidence}%` }} /></div><b>{item.confidence}%</b></div></>}
           <h3 style={{ fontSize: 14 }} className="mt-16">Source</h3><p className="small mt-4">{item.evidence || item.description}</p><p className="tiny muted mt-8">Data source: {item.data_source}</p>
         </>)}
+        {tab === 'explainability' && (
+          <div>
+            <h3 style={{ fontSize: 14 }}>Deep Learning &amp; Biomarker Explainability (SHAP)</h3>
+            <p className="small muted mt-4">
+              Shapley additive attributions across multimodal patient risk factors, latent DGAT graph embeddings, and chemical properties.
+            </p>
+            {explainLoading ? (
+              <p className="small muted mt-16">Computing SHAP values…</p>
+            ) : explainData ? (
+              <div className="mt-16" style={{ display: 'grid', gap: 16 }}>
+                <div className="callout callout-info">
+                  <b>Predicted Screening Risk: {explainData.clinical_biomarker_attribution?.predicted_score ?? '—'} / 100</b>
+                  <p className="small mt-4">Baseline reference expectation: {explainData.clinical_biomarker_attribution?.base_value ?? '—'}</p>
+                </div>
+
+                <div>
+                  <h4 style={{ fontSize: 13, marginBottom: 8 }}>Patient Biomarker Contributions (KernelSHAP)</h4>
+                  <ul className="bullets" style={{ listStyle: 'none', paddingLeft: 0 }}>
+                    {(explainData.clinical_biomarker_attribution?.contributions || []).map((c) => (
+                      <li key={c.feature_name} style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px dashed var(--border)' }}>
+                        <div>
+                          <b style={{ fontSize: 12.5 }}>{c.feature_name}</b> ({c.feature_value})
+                          <div className="tiny muted">{c.clinical_note}</div>
+                        </div>
+                        <span className={`badge ${c.direction === 'increases_risk' ? 'badge-high' : c.direction === 'decreases_risk' ? 'badge-low' : 'badge-info'} no-dot`} style={{ alignSelf: 'flex-start', flexShrink: 0, marginLeft: 8 }}>
+                          {c.shap_value > 0 ? `+${c.shap_value.toFixed(1)}` : c.shap_value.toFixed(1)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                {explainData.latent_neural_attribution?.latent_factors && (
+                  <div>
+                    <h4 style={{ fontSize: 13, marginBottom: 8 }}>DGAT Latent Interaction Attribution</h4>
+                    <div style={{ display: 'grid', gap: 8 }}>
+                      {explainData.latent_neural_attribution.latent_factors.map((lf) => (
+                        <div key={lf.component} style={{ padding: '8px 12px', background: 'var(--surface-2)', borderRadius: 8 }}>
+                          <div className="row justify-between">
+                            <b style={{ fontSize: 12.5 }}>{lf.component}</b>
+                            <span className="tiny strong">{lf.importance_pct}%</span>
+                          </div>
+                          <p className="tiny muted mt-4">{lf.description}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {explainData.chemical_attribution?.substructure_attributions && (
+                  <div>
+                    <h4 style={{ fontSize: 13, marginBottom: 8 }}>Chemical &amp; Pharmacophore Properties</h4>
+                    <ul className="bullets">
+                      {explainData.chemical_attribution.substructure_attributions.map((ca, idx) => (
+                        <li key={idx} className="small">
+                          <b>{ca.chemical_feature}</b>: {ca.impact}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="small muted mt-8">Select tab to load explainability.</p>
+            )}
+          </div>
+        )}
       </div>
     </Drawer>
   );
@@ -598,7 +679,7 @@ export default function Prescription() {
           </table></div>
         </section>
       )}
-      {openPair && <PairDrawer item={openPair} onClose={() => setOpenPair(null)} />}
+      {openPair && <PairDrawer item={openPair} patientId={patient?.id} onClose={() => setOpenPair(null)} />}
     </>
   );
 }

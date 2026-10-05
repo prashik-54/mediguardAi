@@ -17,7 +17,24 @@ The active mode is reported at GET /api/health as "database": "mongodb" | "in-me
 import os
 import itertools
 import threading
+from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+
+
+def _load_dotenv():
+    env_path = Path(__file__).resolve().parent.parent / ".env"
+    if not env_path.exists():
+        return
+    for line in env_path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        os.environ.setdefault(key.strip(), value.strip())
+
+
+_load_dotenv()
 
 MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://localhost:27017")
 MONGODB_NAME = os.getenv("MONGODB_NAME", "ddi_framework")
@@ -226,14 +243,18 @@ def get_db():
         _client.admin.command("ping")
         _db = _MongoDB(_client[MONGODB_NAME])
         _mode = "mongodb"
-        print(f"[MongoDB] Connected -> {MONGODB_URI} / db='{MONGODB_NAME}'")
+        import re
+        masked_uri = re.sub(r"://([^:]+):([^@]+)@", r"://\1:****@", MONGODB_URI)
+        print(f"[MongoDB] Connected -> {masked_uri} / db='{MONGODB_NAME}'")
     except Exception as exc:  # pymongo missing, or Mongo unreachable
         # Print the FULL reason loudly instead of swallowing it, so a bad
         # URI / missing dependency / firewall issue is obvious in the logs
         # instead of silently downgrading to in-memory storage.
+        import re
+        masked_uri = re.sub(r"://([^:]+):([^@]+)@", r"://\1:****@", MONGODB_URI)
         print("=" * 70)
         print("[MongoDB] COULD NOT CONNECT -- falling back to in-memory storage.")
-        print(f"[MongoDB] URI tried: {MONGODB_URI}")
+        print(f"[MongoDB] URI tried: {masked_uri}")
         print(f"[MongoDB] Reason: {type(exc).__name__}: {exc}")
         print("[MongoDB] Common fixes:")
         print("  - Did you create a .env file (copied from .env.example) at the")
