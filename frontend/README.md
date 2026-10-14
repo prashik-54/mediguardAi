@@ -15,9 +15,10 @@ npm run dev          # http://localhost:5173  (proxies /api → http://127.0.0.1
 
 Run the FastAPI backend in another terminal (`uvicorn app.main:app --reload` from the repo root, with
 MongoDB running — see the root `README.md`). Auth, patients, reviews and notifications always talk to
-this backend directly. Only the DDI pipeline call has an offline fallback: if `GET /api/health` fails,
-the DDI workspace falls back to the built-in reference interaction data (`src/data/interactions.js`) and shows
-a **Reference data** badge instead of **Live engine** — nothing breaks either way.
+this backend directly. The DDI pipeline uses the trained DGAT GNN model as its primary engine —
+`src/data/interactions.js` is an empty stub with no static interaction data. If `GET /api/health`
+fails entirely, the DDI workspace shows a **Reference data** banner; otherwise model predictions
+(severity, confidence, TWOSIDES adverse effects) are always shown.
 
 ### Serve the built UI from FastAPI
 
@@ -70,10 +71,14 @@ doctor never loses the patient/visit context while moving between them.
 
 ## Known simplifications (documented, not hidden)
 
-- **Interaction text, risk scores and the home-page figures (10K+ patients, 98% accuracy…) are
-  illustrative.** They come from the reference design and sample data — replace them with validated
-  content, and swap `lib/risk.js` for the trained prediction engine (Module 4, part 2) and SHAP/LIME
-  output (Module 8) once those exist.
+- **Home-page marketing figures (10K+ patients, 98% accuracy…) are illustrative** and should be
+  replaced with validated numbers before any public release.
+- **DDI severity is model-driven.** The trained DGAT GNN drives `High` / `Moderate` / `Low`
+  severity for every pair via `POST /api/ddi/check`. The static `INTERACTIONS` array
+  (`lib/risk.js` / `data/interactions.js`) has been removed; all severity data comes from the
+  model. Clinical validation is still required before deploying in a live hospital environment.
+- **SHAP / Shapley scores** appear on patient reports (screening score) via `module13_reports.py`.
+  Deep-learning SHAP attributions are surfaced via `module16_explainability.py` where available.
 - **The Admin section (users, audit trail, security events, platform-wide charts) still uses static
   sample data.** Wiring genuine audit logging / security monitoring was out of scope for this pass —
   the patient- and DDI-facing features (the actual subject of the project) are the real, database-backed

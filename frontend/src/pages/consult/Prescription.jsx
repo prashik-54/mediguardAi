@@ -61,8 +61,8 @@ function PairDrawer({ item, patientId, onClose }) {
       <div className={`detail-card ${item.severity}`}>
         <TriangleAlert size={22} color={sevColor} style={{ flexShrink: 0 }} />
         <div>
-          <b style={{ color: item.severity === 'High' ? 'var(--high)' : undefined }}>
-            {item.model_only ? 'Model association signal' : `${item.severity} Severity`}
+          <b style={{ color: item.severity === 'High' ? 'var(--high)' : item.severity === 'Moderate' ? 'var(--mod)' : undefined }}>
+            {`${item.severity} Severity`}
           </b>
           <div className="strong">{item.drug_a} + {item.drug_b}</div>
           <div className="small muted">{item.interaction_type}</div>
@@ -366,12 +366,12 @@ export default function Prescription() {
       && (p.model_prediction.model_flag || p.model_prediction.is_recorded_in_twosides)))
     .map((p) => ({
       ...p,
-      model_only: !p.interaction_found,
-      severity: p.interaction_found ? (p.severity === 'Moderate/High' ? 'High' : p.severity) : 'None',
+      model_only: false,
+      severity: p.severity === 'Moderate/High' ? 'High' : (p.severity || 'Low'),
     }))
     .sort((a, b) => ({ High: 2, Moderate: 1, Low: 0, None: -1 }[b.severity] - { High: 2, Moderate: 1, Low: 0, None: -1 }[a.severity])), [ddi]);
   const topHigh = hitPairs.find((p) => p.severity === 'High');
-  const score = patient ? riskScore(patient, hitPairs.filter((p) => !p.model_only), activeMedCount) : null;
+  const score = patient ? riskScore(patient, hitPairs, activeMedCount) : null;
   const factors = patient ? riskFactors(patient, activeMedCount) : [];
   const catalogNames = useMemo(
     () => [...new Set([...CATALOG.map((d) => d.name), ...catalogMatches])],
@@ -550,8 +550,8 @@ export default function Prescription() {
                           <tr key={i} className="clickable" onClick={() => setOpenPair(p)} tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') setOpenPair(p); }}>
                             <td><b>{p.drug_a}</b>{p.drug_a_origin === 'existing' && <span className="badge badge-neutral no-dot" style={{ marginLeft: 6 }}>already active</span>}</td>
                             <td><b>{p.drug_b}</b>{p.drug_b_origin === 'existing' && <span className="badge badge-neutral no-dot" style={{ marginLeft: 6 }}>already active</span>}</td>
-                            <td>{p.model_only ? <span className="badge badge-info no-dot">Model signal</span> : <SeverityBadge level={p.severity} />}</td>
-                            <td className="muted">{p.model_only ? 'DGAT model association signal' : p.interaction_type}</td>
+                            <td><SeverityBadge level={p.severity} /></td>
+                            <td className="muted">{p.interaction_type}</td>
                             <td className="right"><span className="link-btn">Details</span></td>
                           </tr>
                         ))}</tbody>

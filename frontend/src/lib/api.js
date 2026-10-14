@@ -213,23 +213,23 @@ export const api = {
       const pairs = (result.pairs || [])
         .filter((p) => p.interaction_found || (p.model_prediction?.status === 'scored'
           && (p.model_prediction.model_flag || p.model_prediction.is_recorded_in_twosides)))
-        .map((p) => ({
-          a: p.drug_a, b: p.drug_b, key: `${p.drug_a}|${p.drug_b}`,
-          modelOnly: !p.interaction_found,
-          severity: p.interaction_found ? (p.severity === 'Moderate/High' ? 'High' : p.severity) : 'None',
-          type: p.interaction_found ? p.interaction_type || 'Pharmacodynamic' : 'DGAT model association signal',
-          confidence: p.interaction_found ? p.confidence ?? 70 : null,
-          mechanism: p.interaction_found
-            ? p.mechanism || p.description
-            : 'The DGAT model assigned this pair a population-level association score based on TWOSIDES data.',
-          effects: p.effects?.length ? p.effects : p.interaction_found ? [p.interaction_type].filter(Boolean) : [],
-          recommendation: p.interaction_found
-            ? p.recommendation || 'Review with a clinical pharmacist before continuing the combination.'
-            : 'This score is not a clinical determination. Review the pair using current clinical references and professional judgment.',
-          evidence: p.evidence || p.model_prediction?.interpretation || p.data_source || 'DDI engine',
-          source: p.data_source || 'DGAT / TWOSIDES association model',
-          modelPrediction: p.model_prediction,
-        }))
+        .map((p) => {
+          const isModelScored = p.model_prediction?.status === 'scored';
+          const sev = p.severity === 'Moderate/High' ? 'High' : (p.severity || (isModelScored ? (p.model_prediction.probability >= 0.75 ? 'High' : p.model_prediction.probability >= 0.5 ? 'Moderate' : 'Low') : 'Low'));
+          return {
+            a: p.drug_a, b: p.drug_b, key: `${p.drug_a}|${p.drug_b}`,
+            modelOnly: false,
+            severity: sev,
+            type: p.interaction_type || (isModelScored ? 'DGAT Neural GNN Prediction' : 'Clinical Interaction'),
+            confidence: p.confidence ?? (isModelScored ? Math.round(p.model_prediction.probability * 100) : 75),
+            mechanism: p.mechanism || p.description || (isModelScored ? `Trained DGAT Model predicted interaction with probability ${(p.model_prediction.probability * 100).toFixed(1)}%.` : 'Clinical interaction identified.'),
+            effects: p.effects?.length ? p.effects : (p.model_prediction?.known_in_twosides?.examples || [p.interaction_type || 'Potential adverse interaction'].filter(Boolean)),
+            recommendation: p.recommendation || (sev === 'High' ? 'High risk interaction predicted by DGAT model. Review combination and monitor patient.' : 'Review with clinician or clinical pharmacist.'),
+            evidence: p.evidence || p.model_prediction?.interpretation || p.data_source || 'DGAT Model Prediction',
+            source: p.data_source || 'DGAT / TWOSIDES trained neural model',
+            modelPrediction: p.model_prediction,
+          };
+        })
         .sort((x, y) => SEVERITY_RANK[y.severity] - SEVERITY_RANK[x.severity]);
       return {
         engine: 'live',

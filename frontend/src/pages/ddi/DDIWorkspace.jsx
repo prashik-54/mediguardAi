@@ -45,8 +45,8 @@ function InteractionDrawer({ item, onClose, canRequest, patientId }) {
       <div className={`detail-card ${item.severity}`}>
         <TriangleAlert size={22} color={item.severity === 'High' ? 'var(--high)' : item.severity === 'Moderate' ? 'var(--mod)' : 'var(--low)'} style={{ flexShrink: 0 }} />
         <div>
-          <b style={{ color: item.severity === 'High' ? 'var(--high)' : undefined }}>
-            {item.modelOnly ? 'Model association signal' : `${item.severity} Severity`}
+          <b style={{ color: item.severity === 'High' ? 'var(--high)' : item.severity === 'Moderate' ? 'var(--mod)' : undefined }}>
+            {`${item.severity} Severity`}
           </b>
           <div className="strong">{item.a} + {item.b}</div>
           <div className="small muted">{item.type}</div>
@@ -233,7 +233,7 @@ function Workspace({ patient }) {
   const counts = { all: pairs.length, High: pairs.filter((x) => x.severity === 'High').length, Moderate: pairs.filter((x) => x.severity === 'Moderate').length };
   const shown = filter === 'all' ? pairs : pairs.filter((x) => x.severity === filter);
   const factors = riskFactors(working, meds.length);
-  const score = useMemo(() => riskScore(working, pairs.filter((x) => !x.modelOnly), meds.length), [pairs, patient, meds.length]); // eslint-disable-line
+  const score = useMemo(() => riskScore(working, pairs, meds.length), [pairs, patient, meds.length]); // eslint-disable-line
   const hitNames = new Set(pairs.flatMap((x) => [x.a, x.b]));
   const topHigh = pairs.find((x) => x.severity === 'High');
 
@@ -308,7 +308,7 @@ function Workspace({ patient }) {
               <div className="table-wrap"><table className="table"><thead><tr><th>Medication A</th><th>Medication B</th><th>Severity</th><th>Type</th><th /></tr></thead>
                 <tbody>{shown.map((x) => (
                   <tr key={x.key} className="clickable" onClick={() => setOpenItem(x)} tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') setOpenItem(x); }}>
-                    <td><b>{x.a}</b></td><td><b>{x.b}</b></td><td>{x.modelOnly ? <span className="badge badge-info no-dot">Model signal</span> : <SeverityBadge level={x.severity} />}</td><td className="muted">{x.type}</td><td className="right"><span className="link-btn">Details</span></td>
+                    <td><b>{x.a}</b></td><td><b>{x.b}</b></td><td><SeverityBadge level={x.severity} /></td><td className="muted">{x.type}</td><td className="right"><span className="link-btn">Details</span></td>
                   </tr>))}</tbody></table></div>))}
           </section>
 
