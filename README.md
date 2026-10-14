@@ -69,18 +69,21 @@ system by an administrator — there is no public sign-up. See [Signing in](#sig
 - **Startup bootstrap** (`app/seed.py`) creates exactly one Platform Admin from
   `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD` when the `users` collection is empty,
   and nothing else — no demo hospitals, staff or patients are ever seeded.
-- **DDI analysis** — doctor-only endpoints perform the existing `DrugKnowledgeBase` lookup
-  (module2) and patient-factor assessment, then add a supplemental DGAT model score from
-  `app/ml/`. Standalone and prescription-linked analyses use the same pair-scoring helper;
-  prescription analyses persist both sources on the encounter-linked record. Baseline
-  severity alone continues to control prescription review and finalization. DGAT scores are
-  TWOSIDES population-association scores, not patient-specific risk probabilities or clinical
-  severity. The standalone workspace uses reference data only when the backend is unreachable;
-  backend HTTP failures are shown as errors.
-- **DGAT assets** — `app/ml/assets/` contains the trained checkpoint, molecular graphs,
-  interaction graph, drug lookup map/table, and side-effect summaries copied from the DDI model project.
-  The backend precomputes drug embeddings at startup. `DDI_MODEL_ASSETS_DIR` can point to an
-  alternate artifact directory; model availability is exposed at `GET /api/health`.
+- **DDI analysis** — the trained DGAT GNN (Graph Attention Network) model is the **primary**
+  DDI engine. For every drug pair the model runs `predict_pair` and returns a probability;
+  severity is mapped dynamically: `probability >= 0.75` -> **High**, `>= 0.50` -> **Moderate**,
+  otherwise -> **Low**. TWOSIDES adverse-effect annotations and model confidence are surfaced in
+  the UI as `SeverityBadge` elements. Patient-factor adjustments (eGFR, ALT, age) are applied
+  on top by `_patient_ddi_factors`. The static rule-based interaction dictionary (`fallback_ddi_map`)
+  and the frontend static array (`INTERACTIONS`) have been removed; there is no separate
+  "Model signal" badge — every pair shows a real severity level. The standalone workspace and
+  prescription DDI both call the same pair-scoring helper; results are persisted on the
+  encounter-linked analysis record. If the backend is completely unreachable the UI falls back
+  gracefully with a "Reference data" banner.
+- **DGAT assets** — `app/ml/assets/` contains the trained checkpoint (val_auc 0.9615),
+  molecular graphs, interaction graph, drug lookup map/table, and TWOSIDES side-effect
+  summaries. The backend precomputes drug embeddings at startup. `DDI_MODEL_ASSETS_DIR` can
+  point to an alternate artifact directory; model availability is exposed at `GET /api/health`.
 
 ## Roles
 
@@ -289,10 +292,10 @@ npm run dev          # http://localhost:5173  (proxies /api → http://127.0.0.1
 
 Run the FastAPI backend in another terminal (see [Backend setup](#backend-setup) above). Auth,
 patients, appointments, encounters, prescriptions, reviews, reports, pharmacy and notifications
-all talk to this backend directly. Only the DDI pipeline call has an offline fallback: if
-`GET /api/health` fails, the DDI workspace falls back to the built-in reference interaction data
-(`src/data/interactions.js`) and shows a **Reference data** badge instead of **Live engine** —
-nothing breaks either way.
+all talk to this backend directly. The DDI pipeline uses the trained DGAT model as its primary
+engine — `src/data/interactions.js` no longer holds any static interaction data (it is an empty
+stub). If `GET /api/health` fails entirely, the DDI workspace shows a **Reference data** banner;
+otherwise the model's real predictions (severity, confidence, TWOSIDES effects) are always used.
 
 ### Serve the built UI from FastAPI
 
@@ -323,11 +326,14 @@ if you want to sanity-check it without the backend.
   during analysis, a pharmacist review requested/completed, an appointment assigned, a
   prescription finalized…) push real, per-recipient notifications server-side.
 - **DDI analysis** — the standalone workspace calls the doctor-only `POST /api/ddi/check`;
-  prescription DDI uses `POST /api/prescriptions/{id}/ddi-analysis`. Both return the baseline
-  lookup, patient factors, and the same supplemental DGAT pair scores. A model-only score is
-  shown as a neutral “Model signal” and never changes clinical severity or prescription status.
-  Only network failure before the backend responds uses the standalone page's reference-data
-  fallback; API errors from a reachable backend are surfaced.
+  prescription DDI uses `POST /api/prescriptions/{id}/ddi-analysis`. Both call the same
+  pair-scoring helper powered by the trained DGAT GNN — there is no separate "Model signal"
+  designation. The model's probability directly maps to `High` / `Moderate` / `Low` severity
+  badges visible in both the DDI workspace and the prescription page. TWOSIDES adverse-effect
+  annotations and model confidence are included. Patient-factor adjustments (eGFR, ALT, age)
+  are applied server-side. Only when the backend is completely unreachable does the standalone
+  page fall back to a "Reference data" banner; API errors from a reachable backend surface
+  directly to the user.
 
 ## Testing
 
@@ -386,14 +392,19 @@ context while moving between them.
 
 ## Known simplifications (documented, not hidden)
 
-- **Interaction text and the home-page marketing figures (10K+ patients, 98% accuracy…) are
-  illustrative.** The DGAT predictor is integrated as a population-level TWOSIDES association
-  signal, but is not validated for clinical decision-making; the website's local risk score and
-  clinical severity remain separate from that model output. No SHAP/LIME explanations are
-  currently generated.
+- **Home-page marketing figures (10K+ patients, 98% accuracy…) are illustrative** and should be
+  replaced with validated numbers before any public release.
+- **DDI severity is now model-driven.** The trained DGAT GNN (val_auc 0.9615 on TWOSIDES) directly
+  computes `High` / `Moderate` / `Low` severity for every drug pair. The old rule-based static
+  interaction dictionary (`fallback_ddi_map`) and the frontend static `INTERACTIONS` array have
+  been fully removed. Clinical validation is still required before deploying predictions in a live
+  hospital environment.
+- **SHAP / Shapley scores** are computed for the patient-report screening score (organ-impairment
+  and polypharmacy factors). Deep-learning SHAP attributions for model-level pair predictions are
+  surfaced where available via `module16_explainability.py`.
 - **The Admin section's platform-wide charts still use some static sample data** alongside the
   real, database-backed audit log — the patient-, DDI- and workflow-facing features are the
-  real part of the app.
+  real, database-backed part of the app.
 - **MongoDB has an in-memory fallback for local dev** (see [Architecture](#architecture)) — make
   sure `MONGODB_URI` actually resolves before relying on data surviving a restart.
 - The Privacy Policy and Terms are drafts and need legal review.

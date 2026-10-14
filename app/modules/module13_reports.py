@@ -189,30 +189,33 @@ def build_safety_assessment(patient: Dict[str, Any], prescription: Dict[str, Any
     known_pairs = []
     for pair in analysis.get("pairs") or []:
         model = pair.get("model_prediction") or {}
+        prob = float(model.get("probability", 0.0))
+        model_flagged = (
+            model.get("status") == "scored"
+            and (model.get("model_flag") or model.get("is_recorded_in_twosides"))
+        )
+
+        # Derive severity level: prefer the pair's explicit severity field when the
+        # interaction was confirmed (interaction_found=True). When the pair is model-only
+        # (interaction_found=False but flagged by TWOSIDES/model), always derive level
+        # from the model probability so a high-confidence prediction is not hidden.
         if pair.get("interaction_found"):
             level = str(pair.get("severity") or "Low")
             if level.lower() == "moderate/high":
                 level = "High"
             if level.lower() not in ("low", "moderate", "high"):
-                level = "Low"
+                level = "High" if prob >= 0.75 else "Moderate" if prob >= 0.50 else "Low"
+        elif model_flagged:
+            # Model-only: derive entirely from probability threshold
+            level = "High" if prob >= 0.75 else "Moderate" if prob >= 0.50 else "Low"
+        else:
+            continue  # neither confirmed nor model-flagged — skip pair
+
+        if pair.get("interaction_found") or model_flagged:
             known_pairs.append({
                 "medicines": [pair.get("drug_a"), pair.get("drug_b")],
                 "level": level.title(),
-                "explanation": pair.get("description") or "A known medicine-pair finding was recorded.",
-            })
-        elif model.get("status") == "scored" and (
-            model.get("model_flag") or model.get("is_recorded_in_twosides")
-        ):
-            findings.append({
-                "medicines": [pair.get("drug_a"), pair.get("drug_b")],
-                "level": "Model signal",
-                "association_percent": round(float(model["probability"]) * 100, 1),
-                "explanation": (
-                    "This pair is recorded in the TWOSIDES dataset; the association score is "
-                    "population-level and is not a patient-specific risk estimate."
-                    if model.get("is_recorded_in_twosides") else
-                    "Population-level model association only; this is not a patient-specific risk estimate."
-                ),
+                "explanation": pair.get("description") or "A model-predicted medicine-pair interaction was recorded.",
             })
 
     features = _risk_features(patient, prescription, known_pairs)

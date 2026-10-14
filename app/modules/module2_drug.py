@@ -38,128 +38,6 @@ class DrugKnowledgeBase:
             "sorbitrate": "isosorbide dinitrate"
         }
 
-        # 2. BASELINE HIGH-RISK INTERACTION FALLBACK MAP
-        # Single source of truth for every surface that runs a DDI check
-        # (the standalone DDI Analysis Workspace's /api/ddi/check and the
-        # prescription-linked /api/prescriptions/{id}/ddi-analysis both call
-        # query_known_interaction() below) -- this used to be duplicated
-        # (and drifted out of sync) in frontend/src/data/interactions.js;
-        # that file's demo content has been merged in here so both surfaces
-        # can never disagree about a result again. mechanism/effects/
-        # recommendation/confidence/evidence are optional explainability
-        # fields, passed through as-is by query_known_interaction.
-        self.fallback_ddi_map = {
-            ("aspirin", "warfarin"): {
-                "interaction_type": "Severe Anticoagulant & Hemorrhage Risk",
-                "known_severity": "High",
-                "description": "Concomitant use of aspirin and warfarin significantly increases the risk of major gastrointestinal and systemic bleeding.",
-                "mechanism": "Aspirin adds antiplatelet activity and gastric mucosal injury on top of warfarin anticoagulation.",
-                "effects": ["Major gastrointestinal bleeding", "Systemic haemorrhage risk"],
-                "recommendation": "Avoid the combination unless clearly indicated; add gastroprotection and monitor INR and haemoglobin.",
-                "confidence": 94, "evidence": "Meta-analysis, 9 studies · High confidence",
-            },
-            ("ibuprofen", "aspirin"): {
-                "interaction_type": "Pharmacodynamic Risk",
-                "known_severity": "High",
-                "description": "Increased risk of severe GI bleeding and blunting of aspirin's cardioprotective antiplatelet effects.",
-                "mechanism": "Ibuprofen competes for the COX-1 site, blunting aspirin's antiplatelet effect while adding GI toxicity.",
-                "effects": ["Increased GI bleeding", "Reduced cardioprotection from low-dose aspirin"],
-                "recommendation": "Separate dosing (aspirin at least 30 minutes before ibuprofen) or switch to paracetamol for pain.",
-                "confidence": 88, "evidence": "Pharmacodynamic study + label warnings · Well established",
-            },
-            ("metformin", "ciprofloxacin"): {
-                "interaction_type": "Acute Hypoglycemia Risk",
-                "known_severity": "Moderate/High",
-                "description": "Ciprofloxacin enhances the blood-glucose-lowering effect of metformin, increasing the risk of severe hypoglycemia.",
-                "mechanism": "Fluoroquinolones can disturb glucose homeostasis and enhance the glucose-lowering effect of metformin.",
-                "effects": ["Hypoglycaemia", "Occasional hyperglycaemia"],
-                "recommendation": "Monitor blood glucose during the antibiotic course and counsel the patient on symptoms.",
-                "confidence": 73, "evidence": "Case series + label warnings · Moderate confidence",
-            },
-            ("telmisartan", "spironolactone"): {
-                "interaction_type": "Hyperkalemia Risk",
-                "known_severity": "High",
-                "description": "Synergistic elevation of serum potassium levels leading to cardiac arrhythmia risk.",
-                "mechanism": "ARBs reduce aldosterone-driven potassium excretion, and spironolactone blocks it further.",
-                "effects": ["Hyperkalaemia", "Cardiac arrhythmia risk, especially with reduced eGFR"],
-                "recommendation": "Check potassium and creatinine within one week of starting and after each dose change.",
-                "confidence": 90, "evidence": "Randomised trials + registry · High confidence",
-            },
-            ("pantoprazole", "clopidogrel"): {
-                "interaction_type": "Reduced Antiplatelet Efficacy",
-                "known_severity": "Moderate",
-                "description": "Proton pump inhibitor decreases hepatic activation of clopidogrel; pantoprazole has the weakest effect.",
-                "mechanism": "Proton pump inhibitors can decrease hepatic activation of clopidogrel; pantoprazole has the weakest effect.",
-                "effects": ["Small reduction in antiplatelet response"],
-                "recommendation": "Acceptable when gastroprotection is required; monitor for clinical events.",
-                "confidence": 64, "evidence": "Observational data · Low-moderate confidence",
-            },
-            ("metformin", "omeprazole"): {
-                "interaction_type": "Pharmacokinetic Risk", "known_severity": "High",
-                "description": "Omeprazole may increase the serum concentration of metformin by reducing its renal clearance.",
-                "mechanism": "Omeprazole may increase the serum concentration of Metformin by reducing its renal clearance.",
-                "effects": ["Increased risk of lactic acidosis", "Higher exposure in patients with reduced kidney function"],
-                "recommendation": "Consider an alternative acid-suppression therapy, or monitor renal function and lactate closely.",
-                "confidence": 91, "evidence": "Cohort study, n = 4,120 · DrugBank / CDSCO cross-reference",
-            },
-            ("atorvastatin", "amlodipine"): {
-                "interaction_type": "Pharmacokinetic Risk", "known_severity": "Moderate",
-                "description": "Amlodipine weakly inhibits CYP3A4, which can raise atorvastatin exposure.",
-                "mechanism": "Amlodipine weakly inhibits CYP3A4, which can raise atorvastatin exposure.",
-                "effects": ["Increased statin exposure", "Possible myalgia at higher statin doses"],
-                "recommendation": "Keep atorvastatin at the lowest effective dose and ask the patient to report muscle pain.",
-                "confidence": 78, "evidence": "Pharmacokinetic study, n = 32 · Moderate confidence",
-            },
-            ("warfarin", "amiodarone"): {
-                "interaction_type": "Pharmacokinetic Risk", "known_severity": "High",
-                "description": "Amiodarone inhibits CYP2C9 and CYP3A4, reducing the metabolic clearance of warfarin.",
-                "mechanism": "Amiodarone inhibits CYP2C9 and CYP3A4, reducing the metabolic clearance of warfarin.",
-                "effects": ["Markedly raised INR", "Major bleeding risk in the first weeks of co-administration"],
-                "recommendation": "Reduce the warfarin dose by 30-50% on initiation and check INR twice weekly for four weeks.",
-                "confidence": 96, "evidence": "Randomised trial, n = 860 · High confidence",
-            },
-            ("aspirin", "clopidogrel"): {
-                "interaction_type": "Pharmacodynamic Risk", "known_severity": "Moderate",
-                "description": "Dual antiplatelet effect through COX-1 and P2Y12 inhibition.",
-                "mechanism": "Dual antiplatelet effect through COX-1 and P2Y12 inhibition.",
-                "effects": ["Additive bleeding risk with prolonged dual therapy"],
-                "recommendation": "Add a PPI for gastroprotection and reassess the planned duration of dual therapy each visit.",
-                "confidence": 85, "evidence": "Meta-analysis, 12 studies · Well established",
-            },
-            ("clopidogrel", "omeprazole"): {
-                "interaction_type": "Pharmacokinetic Risk", "known_severity": "Moderate",
-                "description": "Omeprazole inhibits CYP2C19, which converts clopidogrel to its active metabolite.",
-                "mechanism": "Omeprazole inhibits CYP2C19, which converts clopidogrel to its active metabolite.",
-                "effects": ["Reduced antiplatelet efficacy", "Higher risk of stent thrombosis in high-risk patients"],
-                "recommendation": "Prefer pantoprazole when a PPI is needed alongside clopidogrel.",
-                "confidence": 82, "evidence": "Registry data + regulatory advisory · Moderate confidence",
-            },
-            ("losartan", "ibuprofen"): {
-                "interaction_type": "Pharmacodynamic Risk", "known_severity": "Moderate",
-                "description": "NSAIDs reduce renal prostaglandins and blunt the effect of ARBs on glomerular pressure.",
-                "mechanism": "NSAIDs reduce renal prostaglandins and blunt the effect of ARBs on glomerular pressure.",
-                "effects": ["Acute kidney injury risk", "Reduced blood-pressure control"],
-                "recommendation": "Avoid regular NSAID use; if unavoidable use the lowest dose for the shortest time and check renal function.",
-                "confidence": 80, "evidence": "Cohort study, n = 12,000 · Well established",
-            },
-            ("sertraline", "ibuprofen"): {
-                "interaction_type": "Pharmacodynamic Risk", "known_severity": "Moderate",
-                "description": "SSRIs deplete platelet serotonin while NSAIDs impair platelet function and irritate the gastric lining.",
-                "mechanism": "SSRIs deplete platelet serotonin while NSAIDs impair platelet function and irritate the gastric lining.",
-                "effects": ["Increased upper GI bleeding risk"],
-                "recommendation": "Consider paracetamol instead, or add gastroprotection if the NSAID is needed.",
-                "confidence": 76, "evidence": "Meta-analysis, 6 studies · Moderate confidence",
-            },
-            ("losartan", "furosemide"): {
-                "interaction_type": "Pharmacodynamic Risk", "known_severity": "Low",
-                "description": "Combined effect may potentiate hypotension and mild electrolyte shifts.",
-                "mechanism": "Combined effect may potentiate hypotension and mild electrolyte shifts.",
-                "effects": ["Occasional dizziness on standing"],
-                "recommendation": "Advise slow postural changes and recheck electrolytes at the next routine visit.",
-                "confidence": 58, "evidence": "Observational registry · Low confidence",
-            },
-        }
-
         # Load DataFrames
         self.indian_drugs_df, self.brand_col, self.comp_col = self._load_and_index_indian_data()
         self.ddi_df, self.d1_col, self.d2_col = self._load_and_index_ddi_data()
@@ -246,9 +124,6 @@ class DrugKnowledgeBase:
                 names.setdefault(value.casefold(), value)
         for alias in self.canonical_chemical_map:
             names.setdefault(alias.casefold(), alias.title())
-        for first, second in self.fallback_ddi_map:
-            names.setdefault(first.casefold(), first.title())
-            names.setdefault(second.casefold(), second.title())
         return sorted(names.values(), key=str.casefold)
 
     def search_medicines(self, query: str, limit: int = 50) -> List[str]:
@@ -282,12 +157,6 @@ class DrugKnowledgeBase:
             ]
             for name in matches["drug_name"].head(limit):
                 add(name)
-
-        for first, second in self.fallback_ddi_map:
-            for name in (first, second):
-                if clean_query in name:
-                    add(name.title())
-
         return sorted(results.values(), key=lambda name: (not name.casefold().startswith(clean_query), name.casefold()))[:limit]
 
     def _canonicalize_chemical_name(self, name: str) -> str:
@@ -370,23 +239,11 @@ class DrugKnowledgeBase:
                     "data_source": "Full DrugBank DDI CSV Dataset"
                 }
 
-        # 2. Check High-Risk Fallback Map
-        if (norm_a, norm_b) in self.fallback_ddi_map:
-            res = self.fallback_ddi_map[(norm_a, norm_b)].copy()
-            res["interaction_found"] = True
-            res.setdefault("data_source", "High-Risk Baseline Resolver")
-            return res
-        elif (norm_b, norm_a) in self.fallback_ddi_map:
-            res = self.fallback_ddi_map[(norm_b, norm_a)].copy()
-            res["interaction_found"] = True
-            res.setdefault("data_source", "High-Risk Baseline Resolver")
-            return res
-
-        # 3. Return structured response indicating static DB record was absent
+        # 2. Return default response when external CSV record is absent (DGAT model predicts)
         return {
             "interaction_found": False,
             "interaction_type": "None",
             "known_severity": "Low",
             "description": f"No explicit static database record for pair ({norm_a}, {norm_b}).",
-            "data_source": "Full Dataset Search Complete"
+            "data_source": "External CSV Not Indexed (DGAT Model Active)"
         }
