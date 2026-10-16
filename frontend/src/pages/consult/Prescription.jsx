@@ -12,7 +12,8 @@ import { Tabs } from '../../components/ui/Tabs';
 import { useToast } from '../../context/ToastContext';
 import { api } from '../../lib/api';
 import { riskFactors, riskScore } from '../../lib/risk';
-import { CATALOG, FREQUENCIES, findDrug } from '../../data/catalog';
+import MedicineCombobox, { isKnownMedicine } from '../../components/ui/MedicineCombobox';
+import { FREQUENCIES, findDrug, splitDose } from '../../data/catalog';
 import '../../styles/patients.css';
 import '../../styles/ddi.css';
 
@@ -188,10 +189,6 @@ export default function Prescription() {
   const [finalizing, setFinalizing] = useState(false);
   const [ddiFilter, setDdiFilter] = useState('all');
   const [openPair, setOpenPair] = useState(null);
-  const [catalogQuery, setCatalogQuery] = useState('');
-  const [catalogBase, setCatalogBase] = useState([]);
-  const [catalogMatches, setCatalogMatches] = useState([]);
-  const [catalogError, setCatalogError] = useState('');
 
   const hydrateRx = (r) => {
     setRx(r);
@@ -238,30 +235,6 @@ export default function Prescription() {
   };
 
   useEffect(() => { document.title = 'Prescription — MediGuard AI'; load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [appointmentId]);
-  useEffect(() => {
-    let active = true;
-    api.drugCatalog()
-      .then((names) => {
-        if (active) { setCatalogBase(names); setCatalogError(''); }
-      })
-      .catch((ex) => { if (active) setCatalogError(ex.message || 'Medicine catalog could not be loaded.'); });
-    return () => { active = false; };
-  }, []);
-  useEffect(() => {
-    const query = catalogQuery.trim();
-    if (query.length < 2) {
-      setCatalogMatches(catalogBase);
-      return undefined;
-    }
-    let active = true;
-    const timer = setTimeout(() => {
-      api.searchDrugCatalog(query)
-        .then((matches) => { if (active) { setCatalogMatches(matches); setCatalogError(''); } })
-        .catch((ex) => { if (active) { setCatalogMatches([]); setCatalogError(ex.message || 'Medicine catalog search failed.'); } });
-    }, 250);
-    return () => { active = false; clearTimeout(timer); };
-  }, [catalogBase, catalogQuery]);
-
   // Editable as many times as needed from any status except
   // Finalized/Cancelled -- including after a DDI review or a high-severity
   // decision has already been recorded (task 'edit prescription as many
@@ -272,15 +245,11 @@ export default function Prescription() {
   const priorVersions = versions.filter((v) => v.id !== rx?.id);
 
   const setItem = (idx, key, val) => setItems((rows) => rows.map((r, i) => (i === idx ? { ...r, [key]: val } : r)));
-  const setMedicineName = (idx, val) => {
-    setCatalogQuery(val);
-    setItems((rows) => rows.map((r, i) => {
-      if (i !== idx) return r;
-      const drug = findDrug(val);
-      if (!drug) return { ...r, medicine_name: val };
-      const [num, unit] = drug.dose.split(/(?<=\d)(?=\D)/).map((s) => s.trim());
-      return { ...r, medicine_name: val, dose: r.dose || num || r.dose, unit: r.unit || unit || r.unit };
-    }));
+  const setMedicineName = (idx, val) => setItem(idx, 'medicine_name', val);
+  // Picking a catalog medicine pre-fills its usual dose/unit, but never overwrites what the doctor already typed.
+  const pickMedicine = (idx, drug) => {
+    const { num, unit } = splitDose(drug.dose);
+    setItems((rows) => rows.map((r, i) => (i === idx ? { ...r, medicine_name: drug.name, dose: r.dose || num, unit: r.unit || unit } : r)));
   };
   const addItem = () => setItems((rows) => [...rows, { ...BLANK_ITEM }]);
   const removeItem = (idx) => setItems((rows) => rows.filter((_, i) => i !== idx));
@@ -373,10 +342,6 @@ export default function Prescription() {
   const topHigh = hitPairs.find((p) => p.severity === 'High');
   const score = patient ? riskScore(patient, hitPairs, activeMedCount) : null;
   const factors = patient ? riskFactors(patient, activeMedCount) : [];
-  const catalogNames = useMemo(
-    () => [...new Set([...CATALOG.map((d) => d.name), ...catalogMatches])],
-    [catalogMatches],
-  );
   // Analysis Results section shows only pairs where an interaction was
   // actually found -- same as the standalone DDI Analysis Workspace --
   // instead of every combination in ddi.pairs (which includes "None found"
@@ -423,16 +388,13 @@ export default function Prescription() {
           This version is {rx.status.toLowerCase()} and can no longer be edited directly. Start a new version to revise it.
         </p>
       )}
-      <datalist id="med-catalog-names">{catalogNames.map((name) => <option key={name} value={name} />)}</datalist>
-      {catalogError && <p className="small muted mb-8" role="status">{catalogError} You can still enter a medicine manually; its dataset/model coverage may be limited.</p>}
-      {!catalogError && <p className="tiny muted mb-8">Searches the loaded medicine and DGAT datasets as you type.</p>}
       <datalist id="med-units">{['mg', 'ml', 'g', 'mcg', 'units', 'tablet(s)', 'drop(s)'].map((u) => <option key={u} value={u} />)}</datalist>
       <datalist id="med-frequencies">{FREQUENCIES.map((f) => <option key={f} value={f} />)}</datalist>
       <datalist id="med-timings">{TIMINGS.map((t) => <option key={t} value={t} />)}</datalist>
       <datalist id="med-routes">{ROUTES.map((r) => <option key={r} value={r} />)}</datalist>
       <datalist id="med-durations">{DURATIONS.map((d) => <option key={d} value={d} />)}</datalist>
       <div className="card card-pad">
-        <p className="tiny muted mb-8">Scroll sideways on smaller screens. Hover the medicine name to see if it matches the drug knowledge base.</p>
+        <p className="tiny muted mb-8">Scroll sideways on smaller screens. Search a medicine by generic name, brand or class; a green outline means it is recognised by the drug knowledge base.</p>
         <div className="rx-table-wrap">
           <div className="rx-table">
             <div className="rx-row rx-head">
@@ -441,15 +403,14 @@ export default function Prescription() {
             </div>
             {items.map((it, idx) => {
               const drug = findDrug(it.medicine_name);
-              const catalogMatch = catalogMatches.some((name) => name.toLowerCase() === (it.medicine_name || '').toLowerCase());
+              const known = isKnownMedicine(it.medicine_name);
               const nameTitle = drug ? `${drug.cls} · matches drug knowledge base`
-                : catalogMatch ? 'Matches the loaded medicine dataset'
+                : known ? 'Matches the loaded medicine dataset'
                   : it.medicine_name ? 'Not in the loaded catalog — DDI check may not recognize this name' : 'Type to search the medicine catalog';
               return (
                 <div className="rx-row" key={idx}>
-                  <input className={`input${it.medicine_name && !drug ? ' input-warn' : ''}`} aria-label={`Item ${idx + 1} medicine name`} list="med-catalog-names"
-                         disabled={!editable} value={it.medicine_name} title={nameTitle} placeholder="Search medicine…"
-                         onChange={(e) => setMedicineName(idx, e.target.value)} />
+                  <MedicineCombobox ariaLabel={`Item ${idx + 1} medicine name`} disabled={!editable} value={it.medicine_name} title={nameTitle}
+                                    invalid={!!it.medicine_name && !known} onChange={(v) => setMedicineName(idx, v)} onPick={(d) => pickMedicine(idx, d)} />
                   <input className="input" aria-label={`Item ${idx + 1} dose`} disabled={!editable} value={it.dose || ''} placeholder="500"
                          onChange={(e) => setItem(idx, 'dose', e.target.value)} />
                   <input className="input" aria-label={`Item ${idx + 1} unit`} list="med-units" disabled={!editable} value={it.unit || ''} placeholder="mg"

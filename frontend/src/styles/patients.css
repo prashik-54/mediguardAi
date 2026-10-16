@@ -85,3 +85,21 @@
 .opt-tag { background: var(--surface, #fff); color: var(--primary); border: 1px solid var(--primary); }
 .req-tag { background: var(--high); color: #fff; border: 1px solid var(--high); }
 .sticky-actions { box-shadow: 0 -4px 14px rgba(0,0,0,.06); }
+
+/* Medicine combobox (prescription item picker) — rendered in a body portal so the
+   horizontally scrolling .rx-table-wrap can't clip it. */
+.med-pop { position: fixed; z-index: 1000; overflow-y: auto; background: var(--surface); border: 1px solid var(--border-strong); border-radius: var(--r-sm); box-shadow: 0 14px 40px rgba(6, 28, 39, .18); padding: 4px; }
+.med-pop-head { display: flex; align-items: center; gap: 6px; padding: 6px 8px 7px; font-size: 11px; font-weight: 600; letter-spacing: .02em; color: var(--muted); border-bottom: 1px solid var(--border); margin-bottom: 4px; position: sticky; top: -4px; background: var(--surface); }
+.med-pop-spin { margin-left: auto; font-weight: 500; color: var(--muted-2); }
+.med-opt { display: flex; align-items: center; gap: 10px; padding: 7px 8px; border-radius: var(--r-xs); cursor: pointer; }
+.med-opt.is-active { background: var(--primary-soft); }
+.med-opt-ico { color: var(--primary); flex-shrink: 0; }
+.med-opt-main { min-width: 0; flex: 1; }
+.med-opt-name { font-size: 13.5px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.med-opt-via { margin-left: 8px; font-size: 11.5px; font-weight: 500; color: var(--primary-strong); }
+.med-opt-sub { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.med-opt-dose { flex-shrink: 0; font-size: 11.5px; font-weight: 600; color: var(--text-2); background: var(--surface-3); border-radius: 999px; padding: 2px 8px; }
+.med-opt-custom { border-top: 1px dashed var(--border); margin-top: 4px; border-radius: 0 0 var(--r-xs) var(--r-xs); }
+.med-opt-custom .med-opt-ico { color: var(--muted); }
+.med-mark { background: var(--accent-soft); color: inherit; border-radius: 3px; padding: 0 1px; }
+.rx-row .input.med-known { border-color: var(--low-line); }
