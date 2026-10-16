@@ -1,0 +1,153 @@
+# =============================================================================
+# MediGuard AI — .gitignore
+# FastAPI + React/Vite + PyTorch DGAT model
+# =============================================================================
+
+
+# ─── Secrets & Environment ───────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+frontend/.env
+frontend/.env.*
+!frontend/.env.example
+
+
+# ─── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.virtualenv/
+
+# Testing & coverage
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.tox/
+.nox/
+
+# Type checkers & linters
+.mypy_cache/
+.ruff_cache/
+.dmypy.json
+dmypy.json
+
+# Distribution / packaging
+*.egg-info/
+build/
+dist/
+*.egg
+MANIFEST
+pip-wheel-metadata/
+share/python-wheels/
+
+
+# ─── ML / PyTorch model artifacts ─────────────────────────────────────────────
+# Trained checkpoint and precomputed graphs are large binary files.
+# Keep them out of git; store in cloud storage (S3, GDrive, DVC, etc.)
+# and document the download step in README.
+app/ml/assets/*.pt
+app/ml/assets/*.parquet
+app/ml/assets/*.pkl
+app/ml/assets/*.pth
+app/ml/assets/*.onnx
+
+# Exclude any locally overridden asset directory (DDI_MODEL_ASSETS_DIR)
+model_artifacts/
+ml_artifacts/
+*.checkpoint
+
+
+# ─── Data files ──────────────────────────────────────────────────────────────
+# Large CSVs used by DrugKnowledgeBase (Indian medicine CSV, DDI CSV).
+# Check these in only if small enough; otherwise add to cloud/DVC.
+data/*.csv
+data/*.parquet
+data/*.json
+# Allow placeholder / sample files explicitly:
+# !data/sample_*.csv
+
+
+# ─── Node / Frontend ─────────────────────────────────────────────────────────
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/coverage/
+frontend/.cache/
+
+# npm / yarn / pnpm logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnpm-store/
+
+# Lock files — uncomment to ignore (usually you WANT these committed)
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+
+# ─── Local databases & runtime ────────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+*.log
+logs/
+
+# In-memory store dump (if ever serialized for debugging)
+inmemory_store_dump*.json
+
+
+# ─── OS and editor files ─────────────────────────────────────────────────────
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# JetBrains IDEs
+.idea/
+*.iml
+*.iws
+
+# Vim / Emacs
+*.swp
+*.swo
+*~
+\#*\#
+.\#*
+
+
+# ─── Build / Documentation artifacts ─────────────────────────────────────────
+CLAUDE.md
+ARCHITECTURE_AUDIT.md
+site/
+docs/_build/
+
+
+# ─── Miscellaneous ────────────────────────────────────────────────────────────
+*.bak
+*.tmp
+*.orig
+*.rej

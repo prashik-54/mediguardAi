@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+pandas
+numpy
+scikit-learn
+torch
+torch-geometric>=2.5
+rdkit>=2023.9
+pyarrow>=14
+pydantic
+pymongo
+dnspython
+certifi
+pyjwt
+pytest
+httpx
+shap
