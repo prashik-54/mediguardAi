@@ -241,6 +241,58 @@ npm run dev                              # http://localhost:5173  (proxies /api 
 
 Then open `http://localhost:5173/#/login`. Full details for each below.
 
+## Windows Setup (PowerShell)
+
+Follow these steps to run MediGuard AI on Windows.
+
+### Prerequisites
+
+- Python
+- Node.js (20.19+ within v20, or 22.12+)
+- Git
+- MongoDB (for persistent data storage)
+
+### Backend Configuration
+
+Open PowerShell in the project root directory:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+Copy-Item .env.example .env
+```
+
+Configure the required environment variables in the `.env` file.
+
+Start the backend:
+
+```powershell
+uvicorn app.main:app --reload
+```
+
+### Frontend Configuration
+
+Open a separate PowerShell terminal:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+### Verify the Application
+
+- Frontend: http://localhost:5173
+- Backend API: http://127.0.0.1:8000
+- API Documentation: http://127.0.0.1:8000/docs
+- System Health: http://127.0.0.1:8000/api/health
+
+Check the system health endpoint to verify database connectivity
+and DGAT model availability before running DDI predictions.
+
+---
+
 ## Backend setup
 
 ```bash
